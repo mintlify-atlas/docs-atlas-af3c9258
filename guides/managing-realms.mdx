@@ -1,7 +1,7 @@
 ---
-title: "Managing Realms with ix mut, ix let, and ix list"
+title: "Managing Realms: ix mut, ix let, ix list, ix purge"
 sidebarTitle: "Managing Realms"
-description: "Install, remove, and update packages in IX realms using mut, let, list, and purge. Learn realm flags, package flags, and the difference between mut and let."
+description: "Install, remove, and update packages in IX realms using mut, let, list, and purge. Learn realm flags, per-package flags, and how mut differs from let."
 ---
 
 Realms are named environments in the IX store — each realm is itself a package (stored under `/ix/store/`) containing symbolic links to all the packages installed into it. The `ix mut` command is the primary way to add packages to a realm, remove them, apply per-package or per-realm flags, and rebuild a realm with the latest available versions of its packages. An anchor symlink in `/ix/realm/` always points to the current store entry for each realm, making it easy to put a realm on your `PATH`.

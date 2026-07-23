@@ -1,7 +1,7 @@
 ---
 title: "Choosing the Right Build System Template for IX Packages"
 sidebarTitle: "Templates"
-description: "IX provides Jinja2 base templates for Make, Autotools, CMake, Meson, Cargo, Go, and more. Learn which template to extend and how the inheritance chain works."
+description: "IX provides Jinja2 base templates for Make, Autotools, CMake, Meson, Cargo, Go, and more. Choose the right template and understand the inheritance chain."
 ---
 
 The `die/` directory under `pkgs/` contains all base build-system templates. Every `ix.sh` starts with `{% extends %}` pointing at exactly one of these templates, inheriting the complete build pipeline — dependency wiring, compiler flag injection, install-time cleanup, and cross-compilation support — for that build system. You only override what differs from the default behavior.

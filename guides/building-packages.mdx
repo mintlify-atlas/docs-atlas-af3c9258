@@ -1,5 +1,5 @@
 ---
-title: "Building Packages with ix build and ix run"
+title: "Building and Running Packages with ix build and ix run"
 sidebarTitle: "Building Packages"
 description: "Use ix build to compile packages into ephemeral realms and ix run to execute commands inside freshly built realms. Includes verbose and debug options."
 ---
@@ -45,7 +45,7 @@ When `--` is omitted, `ix run` attempts to resolve the first argument as a binar
 
 Two mechanisms are available for more detailed build output.
 
-The `IX_VERBOSE` environment variable causes IX to print package dependencies as they are resolved during the build:
+The `IX_VERBOSE` environment variable causes IX to print package dependencies as they are resolved during the build. IX only checks whether the variable is **set** — any non-empty value activates it:
 
 ```bash
 # Show package dependencies during the build
@@ -64,7 +64,7 @@ Combine both: `IX_VERBOSE=1 ./ix build bin/curl --setx --verbose >/tmp/build.log
 
 ## Viewing the Build Graph
 
-Setting `IX_DUMP_GRAPH=1` causes IX to print the full build graph as JSON and exit without actually building anything. This is useful for understanding the dependency structure of a package before committing to a potentially long build.
+Setting `IX_DUMP_GRAPH` causes IX to print the full build graph as JSON and **exit immediately** without actually building anything. IX only checks whether the variable is set — any non-empty value activates it. This is useful for understanding the dependency structure of a package before committing to a potentially long build.
 
 ```bash
 IX_DUMP_GRAPH=1 ./ix build bin/curl

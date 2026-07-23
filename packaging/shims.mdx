@@ -1,7 +1,7 @@
 ---
 title: "Shim Packages for Portability Without Patching Sources"
 sidebarTitle: "Shims"
-description: "Use lib/shim/* packages to solve common portability issues declaratively in IX. Avoid sed-patching Makefiles with fake libraries, header redirects, and pkg-config stubs."
+description: "IX lib/shim/* packages solve portability issues declaratively. Replace sed Makefile patches with fake libraries, header redirects, and pkg-config stubs."
 ---
 
 Instead of patching Makefiles or source files when a library name or header path doesn't match what IX provides, IX offers `lib/shim/*` packages that solve these problems declaratively. Shims belong in `bld_libs` — not `lib_deps` — so the workaround stays local to the package being built and doesn't propagate to downstream consumers.
@@ -13,6 +13,8 @@ Instead of patching Makefiles or source files when a library name or header path
 | `-lfoo` fails; symbols live in another lib | `lib/shim/fake(lib_name=foo)` | `sed` removing `-lfoo` from Makefile |
 | `#include <old/path.h>` uses wrong path | `lib/shim/redir(from=old/path.h,to=new.h)` | `sed` on source files |
 | `pkg-config foo` fails | `lib/shim/fake/pkg(pkg_name=foo,pkg_ver=1)` | Patching configure scripts |
+| Header doesn't exist; declarations not needed | `lib/shim/fake/header(header=foo/bar.h)` | `sed` removing the `#include` |
+| Symbol missing from environment | `lib/shim/fake/symbol(symbol_name=foo)` | Patching the call site |
 | Need `-lfoo` added to `LDFLAGS` | `lib/shim/dll(dll_name=foo)` | `export LDFLAGS="-lfoo $LDFLAGS"` |
 | Build needs a tool but its output is unused | `bld/fake/er(tool_name=foo)` in `bld_tool` | Installing heavy toolchains |
 
@@ -55,6 +57,22 @@ Generates a `.pc` file so that `pkg-config --cflags/--libs <name>` succeeds with
 ```jinja2
 lib/shim/fake/pkg(pkg_name=glew,pkg_ver=1.0.0)
 lib/shim/fake/pkg(pkg_name=dri,pkg_ver=100500,pkg_extra=dridriverdir: /nowhere)
+```
+
+### `lib/shim/fake/header` — Stub Header
+
+Creates a header file that simply includes `stdio.h` (a no-op include). Use this when a package tries to include a system header that doesn't exist in IX's musl-based environment, but whose declarations aren't actually needed by the build.
+
+```jinja2
+lib/shim/fake/header(header=cups/cups.h)
+```
+
+### `lib/shim/fake/symbol` — Single Symbol Stub
+
+Creates a small stub library that exports exactly one symbol — a function that returns 0. Use this when a package references a symbol that doesn't exist in this environment and the build cannot be patched to remove the reference.
+
+```jinja2
+lib/shim/fake/symbol(symbol_name=cupsServer)
 ```
 
 ### `lib/shim/dll` — Inject `-l` Flag

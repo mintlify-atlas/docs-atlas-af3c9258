@@ -1,7 +1,7 @@
 ---
-title: "Fetching and Verifying Package Sources in IX"
+title: "Fetching and Verifying Package Sources in IX Packages"
 sidebarTitle: "Fetching Sources"
-description: "IX supports tarball downloads, git checkouts, and multiple fetch URLs. Every source is verified by SHA-256. Learn the three types of hash used in ix.sh recipes."
+description: "IX supports tarball downloads, git checkouts, and multiple fetch URLs. Every source is SHA-256 verified. Learn the four hash types used in ix.sh recipes."
 ---
 
 Every IX package recipe must declare its source and a checksum. IX supports tarball downloads, git repository checkouts, and multi-archive fetches. Checksums are mandatory — IX builds are hermetic, and every source is verified before unpacking. There are four distinct types of hash used across different package templates, and understanding the difference is essential when updating packages.
@@ -47,7 +47,7 @@ d17c1e9630ce2de65135f2772193d73195b2b3e263d8d070f500258feaef515c
 {% endblock %}
 ```
 
-IX downloads `<git_repo>/archive/refs/tags/<git_branch>.tar.gz` and builds a vendored `.pzd` archive from it. The `git_sha` is the SHA-256 of that `.pzd` archive — **not** a git commit hash. See [The Three Hash Types](#the-three-hash-types) below for the distinction.
+IX downloads `<git_repo>/archive/refs/tags/<git_branch>.tar.gz` and builds a vendored `.pzd` archive from it. The `git_sha` is the SHA-256 of that `.pzd` archive — **not** a git commit hash. See [The Four Hash Types](#the-four-hash-types) below for the distinction.
 
 ## Multiple Fetch URLs
 
@@ -64,7 +64,7 @@ ddeeff0000000000000000000000000000000000000000000000000000000000
 
 Both archives are downloaded, verified, and available under `${src}` before the build steps run.
 
-## The Three Hash Types
+## The Four Hash Types
 
 IX uses four distinct hash types across its package templates. Using the wrong type or confusing them will cause build failures.
 

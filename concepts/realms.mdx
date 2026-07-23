@@ -1,7 +1,7 @@
 ---
-title: "Realms: Composable System Environments in IX"
+title: "Realms: Composable IX Environments via Symlink Overlays"
 sidebarTitle: "Realms"
-description: "Realms are named environments in IX that compose store entries via symlinks. Learn how to create, switch, and manage realms using ix mut, ix let, and ix list."
+description: "Realms in IX are named environments composed of store symlinks. Learn how anchor links, ix mut, and ix let enable atomic environment switching."
 ---
 
 A realm is itself a package in `/ix/store/` — but instead of containing compiled binaries or library archives, it contains symbolic links that point into other store entries. By collecting symlinks from many packages into a single directory tree, a realm presents a unified environment: one `bin/` directory with tools from dozens of packages, one `lib/` with their libraries, and so on. Anchor symlinks in `/ix/realm/` then point to the current (active) version of each realm, making it possible to switch the entire environment atomically by redirecting a single symlink.

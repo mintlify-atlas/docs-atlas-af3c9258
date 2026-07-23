@@ -1,7 +1,7 @@
 ---
-title: "IX Package Anatomy: ix.sh Recipe Structure"
+title: "IX Package Anatomy: ix.sh Structure and Key Blocks"
 sidebarTitle: "Anatomy"
-description: "Every IX package is a directory with an ix.sh Jinja2 template. Learn the required structure, key blocks, and how the directory path becomes the package name."
+description: "Every IX package is a directory with an ix.sh Jinja2 template. Learn the structure, key blocks, and how the directory path becomes the package name."
 ---
 
 Every IX package is a directory somewhere under `pkgs/` that contains a single file named `ix.sh`. The directory path relative to `pkgs/` is the package name — there is no separate manifest or naming field for the package identifier. The `ix.sh` file itself is a Jinja2 template that extends one of the base build-system templates under `pkgs/die/`, inheriting a complete build pipeline for the chosen build system.

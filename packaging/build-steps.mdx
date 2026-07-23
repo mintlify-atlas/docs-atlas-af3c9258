@@ -35,6 +35,7 @@ The overridable aliases for most steps are:
 | Step function | Override block | Notes |
 |---|---|---|
 | `step_unpack` | `step_unpack` | Use for persistent `cd` — runs in current shell `{}` |
+| `step_setup` | `setup` | Pre-configure environment tweaks; runs after unpack |
 | `step_patch` | `patch` | Runs in subshell `()` — `cd` is lost after this step |
 | `step_configure` | `configure` | Run configure/cmake/meson |
 | `step_build` | `build` | Compile |

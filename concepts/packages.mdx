@@ -1,7 +1,7 @@
 ---
 title: "How IX Packages Work: Source Builds and Static Linking"
 sidebarTitle: "Packages"
-description: "IX packages are source-built, statically linked artifacts stored at content-addressed paths. Understand the package model, build isolation, and the package directory structure."
+description: "IX packages are source-built artifacts in a content-addressed store. Learn about namespaces, build isolation, static linking, and the unwrap convention."
 ---
 
 Every IX package is a directory in `/ix/store/` produced by building software from source using a Jinja2 recipe template. The default build strategy is static linking: executables carry their dependencies inside the binary rather than depending on shared libraries at runtime. This eliminates an entire class of runtime surprises — broken `LD_LIBRARY_PATH`, mismatched `.so` versions, missing plugins — at the cost of larger binaries. IX also avoids SUID binaries by default, removing the classic "SUID + plugins = privilege escalation" attack surface.
@@ -78,7 +78,7 @@ Many packages in IX appear in two forms:
   </Card>
 </CardGroup>
 
-The `unwrap` suffix is a naming convention, not a special build step. The `bin/foo/unwrap` package is typically a hub (`die/hub.sh`) whose only content is a `run_deps` block pointing at `bin/foo` and its companions:
+The `unwrap` suffix is a naming convention, not a special build step. The `bin/foo/unwrap` package is typically a hub (`die/hub.sh`) whose only content is a `run_deps` block listing the core package alongside its runtime companions. A parent hub package such as `bin/git` then groups `bin/git/unwrap` together with credentials and SSH support:
 
 ```jinja2
 {% extends '//die/hub.sh' %}

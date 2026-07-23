@@ -1,7 +1,7 @@
 ---
 title: "Cross-Compiling Packages with IX for Other Targets"
 sidebarTitle: "Cross-Compilation"
-description: "Build IX packages targeting non-host OS and ABI combinations using the --target flag. Covers available targets and the bld/ vs bin/ distinction for host tools."
+description: "Build IX packages targeting a different OS or CPU using --target. Covers cross-toolchain setup, the bld/ vs bin/ namespace split, and template variables."
 ---
 
 IX supports cross-compilation — building packages whose output targets a different operating system or CPU architecture from the machine running the build. The entire template system is designed with this in mind: every package in `bin/` and `lib/` must be able to cross-compile for any supported target platform, while packages in `bld/` are always built for the host and are never cross-compiled. The `--target` flag selects the target triple at build time.
@@ -44,7 +44,7 @@ When writing a new package that requires a build-time code generator or compiler
 
 ## Template Variables for Cross-Builds
 
-Inside `ix.sh` Jinja2 templates, two architecture objects are available: `host` and `target`. They expose identical fields but describe the respective machines. Key fields include:
+Inside `ix.sh` Jinja2 templates, two architecture objects are available: `host` and `target`. They expose identical fields but describe the respective machines. The following are common examples — this is not a complete list of all available fields:
 
 | Variable | Example value | Description |
 |---|---|---|

@@ -1,7 +1,7 @@
 ---
-title: "IX: Hermetic Source-Based Package Manager"
+title: "IX: Hermetic Source-Based Package Manager for Linux"
 sidebarTitle: "Introduction"
-description: "IX is a source-based, content-addressed package manager built on static linking, hermetic builds, and Jinja2 recipe templates. Learn what makes it different."
+description: "IX is a source-based, content-addressed package manager built on static linking, hermetic builds, and Jinja2 recipe templates. See what sets it apart."
 ---
 
 IX is the package manager and build system at the heart of **stal/IX** (Stalix), a Linux distribution designed around explicit, auditable software composition. Unlike mainstream distributions that ship pre-built binaries from a central archive, IX builds every package from source using Jinja2-templated recipes, stores results in a content-addressed store at `/ix/store/<hash>-<pkg>`, and assembles user-visible environments — called **realms** — out of immutable store entries. The result is a system where "what is installed" is always traceable back to a build graph with no implicit host environment leakage.

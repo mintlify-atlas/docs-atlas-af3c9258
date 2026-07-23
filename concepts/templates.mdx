@@ -1,7 +1,7 @@
 ---
-title: "Package Templates and the Jinja2 Build System"
+title: "IX Package Templates and Jinja2 Build System Basics"
 sidebarTitle: "Templates"
-description: "IX package recipes are Jinja2 templates that inherit from a hierarchy of build-system templates in pkgs/die/. Learn the template chain and how to choose the right base."
+description: "IX uses Jinja2 templates in pkgs/die/ to define builds. Learn the template inheritance chain, how to choose a base, and key template variables."
 ---
 
 IX package recipes are Jinja2 templates. Every `ix.sh` file starts with a single `{% extends %}` directive that selects the appropriate build-system base template from the `pkgs/die/` hierarchy. Everything that follows is a set of block overrides that customize the build: which source to fetch, which dependencies to link against, which configure flags to pass, and which install steps to run. You never write a raw shell build script — you override named blocks in a template that already knows how to call `cmake`, `make`, `cargo`, or `go build` correctly.
@@ -53,7 +53,8 @@ Select the template that matches the upstream build system. Use `grep -r 'extend
 |----------|-------------------|-------------|
 | GNU Make | `//die/c/make.sh` | `make && make install`, no configure script |
 | Autoconf | `//die/c/configure.sh` | `./configure && make && make install` |
-| Autotools | `//die/c/autohell.sh` | autoconf + automake, `autoreconf` needed |
+| Autotools | `//die/c/autohell.sh` | autoconf + automake, uses pre-generated `configure` |
+| Autotools (regen) | `//die/c/autorehell.sh` | autoconf + automake, runs `autoreconf` to regenerate `configure` |
 | CMake | `//die/c/cmake.sh` | CMake |
 | Meson | `//die/c/meson.sh` | Meson |
 | Ninja (raw) | `//die/c/ninja.sh` | Ninja without CMake or Meson |

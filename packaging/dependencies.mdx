@@ -1,5 +1,5 @@
 ---
-title: "Declaring Dependencies in IX Package Recipes"
+title: "Declaring Build and Runtime Dependencies in IX Packages"
 sidebarTitle: "Dependencies"
 description: "Use bld_libs, bld_tool, lib_deps, run_deps, and other dependency blocks to declare what an IX package needs at build time and runtime."
 ---
@@ -12,6 +12,7 @@ IX package dependencies are declared as whitespace-separated lists in Jinja2 blo
 |---|---|
 | `bld_libs` | Static libraries linked into the artifact (target architecture) |
 | `bld_tool` | Executables on `PATH` during the build (host architecture) |
+| `std_env` | Full override of the standard toolchain environment — **rarely used** |
 | `lib_deps` | Libraries exported to packages that depend on this one |
 | `run_deps` | Runtime packages (binaries, data) needed when this package runs |
 | `run_data` | Runtime data packages (`aux/`) |
@@ -96,6 +97,54 @@ bin/git/cred
 lib/ncurses
 {% endblock %}
 ```
+
+## `run_data` — Runtime Data
+
+`run_data` lists data-only packages from `aux/` that must be present at runtime. These are non-binary resources such as fonts, terminfo databases, or CA bundles.
+
+```jinja2
+{% block run_data %}
+aux/terminfo
+aux/ca/bundle
+{% endblock %}
+```
+
+## `bld_data` — Build-time Data
+
+`bld_data` lists data packages from `aux/` that are needed only during the build — for example, the Cargo crate index or a Go module cache used for offline vendored builds.
+
+```jinja2
+{% block bld_data %}
+aux/cargo
+{% endblock %}
+```
+
+Go and Rust templates manage this automatically; you rarely need to set `bld_data` manually.
+
+## `host_libs` — Host-Architecture Libraries
+
+`host_libs` lists libraries that must be compiled for the **host** machine (the machine running the build) rather than the target. Use this when a package needs to build host-arch tools (code generators, protobuf compilers, etc.) as part of its own build.
+
+```jinja2
+{% block host_libs %}
+lib/c
+lib/z
+{% endblock %}
+```
+
+The Meson template automatically generates a `native.ini` cross-file when `host_libs` is non-empty. This keeps host and target compilers fully separated.
+
+## `ind_deps` — Induced Dependencies
+
+`ind_deps` injects implicit dependencies that the build graph would otherwise not detect. Use it for dependencies that are referenced at runtime or load time but are not expressed through `lib_deps` or `run_deps` — for example, a plugin loaded via `dlopen`.
+
+```jinja2
+{% block ind_deps %}
+bin/some/plugin
+{% endblock %}
+```
+
+This block is uncommon. Prefer `run_deps` for normal runtime packages.
 
 ## Parameterized Dependencies
 

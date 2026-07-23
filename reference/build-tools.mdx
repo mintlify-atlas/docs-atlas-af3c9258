@@ -1,7 +1,7 @@
 ---
 title: "IX Build Tools Reference: bld/ Packages for Package Authors"
 sidebarTitle: "Build Tools"
-description: "Reference for bld/ packages used in IX recipes: pkg-config, perl, python, bison, flex, gettext, wayland-scanner, fake tools, and ELF manipulation utilities."
+description: "Reference for bld/ packages in IX recipes: pkg-config, perl, python, bison, flex, gettext, wayland-scanner, fake tools, and ELF utilities."
 ---
 
 IX package recipes declare build-time host executables using the `bld_tool` block. The `bld/` namespace contains compilers, parser generators, internationalization tools, GUI framework helpers, ELF manipulation utilities, and fake/stub tools for suppressing unwanted build-time dependencies. This page catalogs everything that package authors explicitly add to `bld_tool` or `bld_libs` — template-internal tools that are pulled in automatically (such as `bld/make`, `bld/cmake`, and `bld/compiler`) are not listed here.

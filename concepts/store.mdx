@@ -1,7 +1,7 @@
 ---
-title: "The IX Content-Addressed Store"
+title: "IX Store: Content-Addressed Package Paths Explained"
 sidebarTitle: "Store"
-description: "Learn how IX uses a content-addressed store at /ix/store to achieve immutable, reproducible package builds with 22-character hash identifiers."
+description: "IX stores every package at /ix/store/<22-char-hash>-<name>/. The content-addressed path ensures immutable, reproducible builds and zero version conflicts."
 ---
 
 Every package output in IX lives at a unique path under `/ix/store/`. That path is immutable once created: its contents never change, and no two different builds share the same location. The store is content-addressed — the path is derived from the exact inputs used to build the package — which is conceptually similar to the stores used by NixOS and Guix, though IX makes its own trade-offs around static linking, build isolation, and template-based recipes.
@@ -14,7 +14,7 @@ For example, the `bin/bzip2` package produces:
 
 ```text
 /ix/store/0GsKotnAh74LIcvO-bin-bzip2/
-/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin
 /ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzip2
 /ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bunzip2
 /ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzcat
@@ -30,7 +30,7 @@ For example, the `bin/bzip2` package produces:
 /ix/store/0GsKotnAh74LIcvO-bin-bzip2/touch
 ```
 
-The hash `0GsKotnAh74LIcvO` (shown here without the full 22 characters for brevity) uniquely identifies this particular build of `bin/bzip2` with exactly these inputs.
+The hash `0GsKotnAh74LIcvO` uniquely identifies this particular build of `bin/bzip2` with exactly these inputs.
 
 ## Content Addressing
 

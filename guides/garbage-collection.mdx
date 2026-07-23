@@ -1,7 +1,7 @@
 ---
 title: "Garbage Collecting Unused Store Entries with ix gc"
 sidebarTitle: "Garbage Collection"
-description: "Use ix gc to find and remove unused packages from /ix/store by moving them to /ix/trash. Control which prefixes are collected and understand the reachability algorithm."
+description: "Use ix gc to move unused /ix/store entries to /ix/trash for removal. Control which prefixes are collected and learn how anchor-realm reachability works."
 ---
 
 Over time the IX store (`/ix/store/`) accumulates old package versions and build artifacts that are no longer referenced by any active realm. Every time you run `ix mut` or `ix build`, new store entries may be created while old ones are left behind — the store is immutable and never overwrites existing content. `ix gc` identifies all entries that are unreachable from the current set of anchor realms and moves them to `/ix/trash/` for asynchronous removal, freeing disk space without risking damage to packages still in use.
@@ -43,7 +43,7 @@ ix gc lib bin
 ix gc
 ```
 
-The default prefixes when none are specified are: **`lib`**, **`bin`**, **`lnk`**, **`aux`**, and **`rlm`**. These cover the most common package types that accumulate during normal use.
+The default prefixes when none are specified are: **`lib`**, **`bin`**, **`lnk`**, **`aux`**, **`rlm`**, **`set`**, and **`pip`**. These cover the most common package types that accumulate during normal use.
 
 | Prefix | Package type |
 |--------|-------------|
@@ -52,6 +52,8 @@ The default prefixes when none are specified are: **`lib`**, **`bin`**, **`lnk`*
 | `lnk`  | Link packages |
 | `aux`  | Runtime data (fonts, terminfo, etc.) |
 | `rlm`  | Realm packages |
+| `set`  | Meta-package sets |
+| `pip`  | Python pip packages |
 
 Passing explicit prefixes is useful when you want a surgical collection — for example, reclaiming space from old library builds while leaving other types alone for inspection.
 

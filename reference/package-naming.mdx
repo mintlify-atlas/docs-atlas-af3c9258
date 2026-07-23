@@ -1,7 +1,7 @@
 ---
-title: "IX Package Naming Conventions and Path Canon"
+title: "IX Package Naming Conventions and Path Canonicalization"
 sidebarTitle: "Package Naming"
-description: "IX derives package names from directory paths under pkgs/. Learn the canonical naming rules: compound names, hyphens, versions, variants, and special suffixes."
+description: "IX derives package names from directory paths under pkgs/. Learn the naming rules: compound words, hyphens, versions, variants, and suffixes."
 ---
 
 In IX, a package's name **is** its path under `pkgs/`. There is no separate registry or manifest — the directory structure is the package identifier. The naming conventions are strict and non-trivial: compound names are split by word boundaries, hyphens become path separators, version numbers become path components, and variants are expressed as nested subdirectories. Understanding these rules is essential for both finding existing packages and naming new ones correctly.
@@ -15,7 +15,7 @@ The package path equals the package name. The `ix.sh` recipe file at a given dir
 | Recipe path | Package name |
 |---|---|
 | `pkgs/bin/neo/vim/ix.sh` | `bin/neo/vim` |
-| `pkgs/lib/open/ssl/ix.sh` | `lib/openssl` |
+| `pkgs/lib/openssl/ix.sh` | `lib/openssl` |
 | `pkgs/bld/cmake/ix.sh` | `bld/cmake` |
 
 The path you use in `ix mut`, `ix build`, and `ix dep` must match the directory path exactly.
