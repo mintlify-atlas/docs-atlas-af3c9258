@@ -1,0 +1,95 @@
+---
+title: "The IX Content-Addressed Store"
+sidebarTitle: "Store"
+description: "Learn how IX uses a content-addressed store at /ix/store to achieve immutable, reproducible package builds with 22-character hash identifiers."
+---
+
+Every package output in IX lives at a unique path under `/ix/store/`. That path is immutable once created: its contents never change, and no two different builds share the same location. The store is content-addressed — the path is derived from the exact inputs used to build the package — which is conceptually similar to the stores used by NixOS and Guix, though IX makes its own trade-offs around static linking, build isolation, and template-based recipes.
+
+## Store Path Structure
+
+A store path has the form `/ix/store/<22-char-hash>-<pkg-name>/`. The hash is a 22-character base-62 string (lowercase letters `a–z`, uppercase letters `A–Z`, and digits `0–9`). The name portion is the package path with slashes replaced by hyphens, preceded by a single hyphen.
+
+For example, the `bin/bzip2` package produces:
+
+```text
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzip2
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bunzip2
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzcat
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzip2recover
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzgrep
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzegrep
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzfgrep
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzmore
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzless
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzdiff
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/bin/bzcmp
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/env
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/touch
+```
+
+The hash `0GsKotnAh74LIcvO` (shown here without the full 22 characters for brevity) uniquely identifies this particular build of `bin/bzip2` with exactly these inputs.
+
+## Content Addressing
+
+The 22-character hash is derived from everything that influences the build: the source URL and its checksum, all declared dependencies and their own hashes, all flags and build parameters, and the build script itself. This has important consequences:
+
+- **Same inputs → same hash → same path.** If two machines build the same package from the same recipe, they produce identical store paths.
+- **Different inputs → different hash → different path.** Changing a version number, a flag (e.g. `--mesa_driver=radv`), or any dependency produces a new hash and a new, non-overlapping store path.
+- **No version conflicts.** Because different builds land at different paths, multiple versions of a package can coexist in the store simultaneously without interfering.
+
+UIDs cascade through the dependency tree: changing a library's version changes the hash of every package that depends on it, transitively up the graph.
+
+## The `env` File
+
+Every package directory contains an `env` file. This file is a shell script that exports the paths and flags needed by downstream consumers. When another package declares a dependency on this one, IX sources its `env` file before the dependent package's configure and build steps run. A typical `env` file might look like:
+
+```sh
+export CPPFLAGS="-I/ix/store/0GsKotnAh74LIcvO-lib-z/include ${CPPFLAGS}"
+export LDFLAGS="-L/ix/store/0GsKotnAh74LIcvO-lib-z/lib -lz ${LDFLAGS}"
+export PKG_CONFIG_PATH="/ix/store/0GsKotnAh74LIcvO-lib-z/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export CMAKE_PREFIX_PATH="/ix/store/0GsKotnAh74LIcvO-lib-z:${CMAKE_PREFIX_PATH}"
+```
+
+You do not write these files by hand — they are generated automatically by `die/std/env_auto.sh` during the package's postinstall phase.
+
+## The `touch` File
+
+Each package directory also contains a `touch` file. The presence of this file marks the package as fully and successfully built. IX checks for the `touch` file to determine whether a store entry is complete. A store path whose `touch` file is absent is considered incomplete and will be rebuilt.
+
+## Immutability
+
+Once a store path is created and its `touch` file written, the directory is read-only. Nothing in the build system modifies an existing store entry. This immutability is what makes the store safe to share across users and processes: a package in use by one realm cannot be silently mutated by another build.
+
+Old store entries are not removed automatically. Removing unreachable entries requires running the garbage collector explicitly:
+
+```sh
+ix gc
+```
+
+`ix gc` identifies all store paths that are not reachable from any anchor realm in `/ix/realm/` and moves them to `/ix/trash/` for asynchronous deletion. You can restrict which package prefixes are candidates for collection by passing prefixes as arguments (the defaults are `lib`, `bin`, `lnk`, `aux`, and `rlm`).
+
+<Note>
+The store is shared across all users on a stal/IX system. Because store paths are content-addressed, different users can install different versions of the same package without conflict. Each user can also work from a different clone or branch of the IX repository — the `IX_PATH` and `IX_PKGS_ROOT` environment variables control which recipe tree is used.
+</Note>
+
+## Configuring the Store Root
+
+By default IX uses `/ix` as the root of its data directory. The store lives at `/ix/store/` and the garbage collection staging area at `/ix/trash/`. You can override the root with the `IX_ROOT` environment variable:
+
+```sh
+export IX_ROOT=/my/custom/ix
+# Store becomes /my/custom/ix/store/
+# Trash becomes /my/custom/ix/trash/
+# Realm anchors become /my/custom/ix/realm/
+```
+
+This is most useful when running IX as a standalone package manager on a non-stal/IX Linux or macOS host, or when testing a second IX installation alongside an existing one.
+
+| Path | Purpose |
+|------|---------|
+| `$IX_ROOT/store/` | Immutable package outputs |
+| `$IX_ROOT/realm/` | Anchor symlinks pointing to active realm versions |
+| `$IX_ROOT/trash/` | Staging area for GC'd store entries awaiting deletion |

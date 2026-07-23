@@ -1,0 +1,87 @@
+---
+title: "IX Environment Variables Reference"
+sidebarTitle: "Environment Variables"
+description: "All environment variables that control IX behavior: store location, thread count, execution mode, build verbosity, and package recipe paths."
+---
+
+IX behavior is controlled through environment variables. Most have sensible defaults and work out of the box, but they can all be overridden before invoking `./ix` to customize the store location, parallelism, verbosity, recipe search paths, and execution mode.
+
+---
+
+## Variable Reference
+
+| Variable | Default | Description |
+|---|---|---|
+| `IX_ROOT` | `/ix` | Root directory for the IX store. The package store lives at `$IX_ROOT/store/` and realm anchor links at `$IX_ROOT/realm/`. |
+| `IX_EXEC_KIND` | `system` if `/bin/bin_ix/assemble` exists, otherwise `local` | Operation mode. Controls whether IX manages the system store or runs as a standalone user tool. See [Execution Modes](#execution-modes). |
+| `IX_PATH` | `{builtin}` | Colon-separated list of directories containing package recipes. The token `{builtin}` expands to the `pkgs/` directory inside the IX repository. |
+| `IX_THREADS` | Number of CPUs | Number of parallel build threads. |
+| `IX_VERBOSE` | *(unset)* | When set to any non-empty value, IX shows package dependencies during the build. |
+| `IX_DUMP_GRAPH` | *(unset)* | When set, IX prints the build graph as JSON and exits without building. |
+| `IX_DUMP_REPO` | *(unset)* | When set, IX prints the build graph as JSON but does not exit — the build proceeds. |
+| `IX_BINARY` | *(auto-detected)* | Path to the IX executable. Set automatically by the `./ix` wrapper. |
+| `IX_DIR` | *(auto-detected)* | Directory containing the IX executable. Set automatically by the `./ix` wrapper. |
+| `IX_PKGS_ROOT` | *(auto-detected)* | Path to the IX repository root. |
+| `IX_WHERE` | *(auto-detected)* | Path to `pkgs/die/scripts` inside the IX repository. |
+| `IX_RANDOM` | *(random integer)* | A random integer between 0 and 1,000,000,000 used internally by IX. |
+| `IX_B_DIR` | *(build-time only)* | Directory containing host binaries during a package build. Set by IX when invoking a recipe; not normally set by the user. |
+| `IX_H_DIR` | *(build-time only)* | Directory containing host libraries during a package build. Set by IX when invoking a recipe. |
+| `IX_T_DIR` | *(build-time only)* | Directory containing target libraries during a package build. Set by IX when invoking a recipe. |
+
+---
+
+## Usage Examples
+
+```bash
+# Use a custom store location instead of /ix
+export IX_ROOT=/opt/ix
+./ix build bin/b64
+
+# Use 8 parallel build threads
+export IX_THREADS=8
+./ix build bin/llvm
+
+# Show verbose dependency output during build
+export IX_VERBOSE=1
+./ix build bin/curl
+
+# Add a custom package overlay while keeping the built-in recipes
+export IX_PATH="/home/user/my-pkgs:{builtin}"
+./ix build my/custom/pkg
+
+# Print the build graph as JSON and exit without building
+export IX_DUMP_GRAPH=1
+./ix build bin/curl
+```
+
+---
+
+## Execution Modes
+
+The `IX_EXEC_KIND` variable selects how IX interacts with the host system. There are three modes:
+
+<Tabs>
+  <Tab title="system">
+    **`IX_EXEC_KIND=system`**
+
+    Full system-wide package manager mode. IX assembles realms and switches anchor links in `/ix/realm/`. This is the default when `/bin/bin_ix/assemble` exists on the system — meaning the host is a stal/IX system with the IX assembler installed.
+
+    Use this mode when IX manages the operating system's packages and you want changes to take effect system-wide.
+  </Tab>
+  <Tab title="local">
+    **`IX_EXEC_KIND=local`**
+
+    Standalone mode. IX builds and manages packages without assuming it owns the system directories. This is the default on systems where `/bin/bin_ix/assemble` does not exist (for example, when running IX on a Linux distribution that is not stal/IX, or on macOS/Darwin).
+
+    Use this mode for per-user package management or for evaluating IX on an existing system.
+  </Tab>
+  <Tab title="fake">
+    **`IX_EXEC_KIND=fake`**
+
+    Stub mode. IX does almost nothing — most operations are no-ops. This mode is primarily useful for testing IX itself or for dry-running parts of the toolchain without producing any real output.
+  </Tab>
+</Tabs>
+
+<Note>
+  You rarely need to set `IX_EXEC_KIND` manually. IX detects the correct mode by checking for `/bin/bin_ix/assemble` at startup. Only override it if you need to force a specific mode for testing or in unusual deployment scenarios.
+</Note>

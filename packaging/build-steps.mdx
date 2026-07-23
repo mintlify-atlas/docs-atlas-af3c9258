@@ -1,0 +1,164 @@
+---
+title: "Build Steps and Compiler Flag Blocks in IX Packages"
+sidebarTitle: "Build Steps"
+description: "Customize IX package build pipelines using step_unpack, patch, configure, build, and install blocks. Use cpp_defines, c_flags, and ld_flags instead of sed."
+---
+
+Every IX package template defines a pipeline of build steps declared in `base.sh`. You override specific step blocks to customize behavior — most packages only need to override one or two steps. For compiler and linker flag changes, IX provides dedicated blocks that are far cleaner and more reliable than patching Makefiles with `sed`.
+
+## The Build Pipeline
+
+The steps execute in this order, composed by `do_*` functions:
+
+```
+do_execute()
+  └── do_test()
+        └── do_install()
+              └── do_build()
+                    └── do_configure()
+                          └── do_patch()
+                                └── do_setup()
+                                      └── do_unpack()
+                                            step_unpack()
+                                      step_setup()
+                                step_patch()
+                          step_configure()
+                    step_build()
+              step_install()
+        step_test()
+```
+
+Override the block that corresponds to the step you want to customize. Use `{{super()}}` to keep the parent behavior and add to it.
+
+The overridable aliases for most steps are:
+
+| Step function | Override block | Notes |
+|---|---|---|
+| `step_unpack` | `step_unpack` | Use for persistent `cd` — runs in current shell `{}` |
+| `step_patch` | `patch` | Runs in subshell `()` — `cd` is lost after this step |
+| `step_configure` | `configure` | Run configure/cmake/meson |
+| `step_build` | `build` | Compile |
+| `step_test` | `test` | Run tests |
+| `step_install` | `install` | Install into `${out}` |
+
+## Important: `step_unpack` for Persistent `cd`
+
+A critical subtlety: `step_patch` runs in a **subshell** `()`, so any `cd` inside it is lost when the next step begins. If you need to change into a source subdirectory and have that `cd` persist for all subsequent steps (configure, build, install), override `step_unpack` instead — it runs in the current shell `{}`.
+
+```jinja2
+{% block step_unpack %}
+{{super()}}
+cd crawl-ref/source
+{% endblock %}
+```
+
+This is the correct pattern for packages like Dungeon Crawl Stone Soup where the actual source lives in a subdirectory of the archive. If you put the `cd` in `patch` instead, it will be lost before the configure step runs.
+
+## Compiler Flag Blocks
+
+Instead of patching Makefiles with `sed` to inject compiler or linker flags, use the dedicated flag blocks from `die/c/ix.sh`. These are cleaner, composable with `{{super()}}`, and work regardless of the build system.
+
+| Need | Block | Result |
+|---|---|---|
+| `-DFOO=1` | `cpp_defines` | Each item → `-D<item>` in `CPPFLAGS` |
+| `-I<path>` | `cpp_includes` | Each item → `-I<item>` in `CPPFLAGS` |
+| `-include<hdr>` | `cpp_missing` | Each item → `-include<item>` in `CPPFLAGS` |
+| Raw CPPFLAGS | `cpp_flags` | Items appended to `CPPFLAGS` as-is |
+| CFLAGS | `c_flags` | Items appended to `CFLAGS` |
+| CXXFLAGS | `cxx_flags` | Items appended to `CXXFLAGS` |
+| LDFLAGS | `ld_flags` | Items appended to `LDFLAGS` |
+
+Example — instead of `sed -i 's|CFLAGS|CFLAGS -DNCURSES_WIDECHAR=1|' Makefile`:
+
+```jinja2
+{% block cpp_defines %}
+NCURSES_WIDECHAR=1
+{% endblock %}
+```
+
+A more complete example:
+
+```jinja2
+{% block cpp_defines %}
+_GNU_SOURCE
+_LARGEFILE64_SOURCE
+HAVE_OPENSSL=1
+{% endblock %}
+
+{% block cpp_missing %}
+stdint.h
+limits.h
+{% endblock %}
+
+{% block ld_flags %}
+-Wl,-z,nostart-stop-gc
+{% endblock %}
+```
+
+## The `patch` Block
+
+Reserve the `patch` block for source-level changes that can't be expressed as a compiler flag — removing broken build targets, fixing logic errors, adjusting hardcoded paths in source files.
+
+```jinja2
+{% block patch %}
+{{super()}}
+sed -i 's|/usr/share/myapp|${out}/share/myapp|' src/paths.h
+{% endblock %}
+```
+
+Files that live in the same directory as `ix.sh` are accessible as `${source}/filename` inside the patch block.
+
+## The `env` Block — Exporting Paths
+
+The `env` block lets a library export environment variables that are sourced into the build environment of every package that depends on it (via `bld_libs` or `lib_deps`). Use this instead of requiring consumers to parse `CPPFLAGS`/`LDFLAGS` with `sed` or `grep`.
+
+In the library:
+
+```jinja2
+{% block env %}
+export MY_LIB_INCLUDE="${out}/include"
+export MY_LIB_PREFIX="${out}"
+{% endblock %}
+```
+
+In a consumer's `patch` block, `${MY_LIB_INCLUDE}` and `${MY_LIB_PREFIX}` are available directly. Use `{{super()}}` if the parent template already defines `env` and you want to extend rather than replace it.
+
+## Refine Blocks
+
+The `*_refine` blocks run **during the fetch/vendor step** (inside `aux/fetch`), before the `.pzd` archive is packed. Use them when sources need modification before dependency resolution — for example, fixing a `go.mod` version constraint before `go mod tidy` runs.
+
+```jinja2
+{% block go_refine %}
+sed -e 's|go 1.16|go 1.21|' -i go.mod
+go mod tidy -compat=1.21
+{% endblock %}
+```
+
+The available refine blocks by template:
+
+| Template | Refine block | Runs during | Use case |
+|---|---|---|---|
+| `die/go/build.sh` | `go_refine` | `aux/go` fetch, before `go mod tidy` | Fix go.mod version, add/remove deps |
+| `die/rust/cargo.sh` | `cargo_refine` | `aux/cargo` fetch, after download | Run codegen before `cargo vendor` |
+| `die/std/ix0.sh` | `git_refine` | `aux/fetch` for git repos | Patch sources before packing |
+
+If a refine block needs build tools, list them in the corresponding `*_refine_tools` block:
+
+```jinja2
+{% block cargo_refine %}
+make webui-deps
+{% endblock %}
+
+{% block cargo_refine_tools %}
+bld/npm
+bld/make
+{% endblock %}
+```
+
+<Warning>
+If you change a refine block, you must re-derive the sha. The `.pzd` archive changes because the vendored content changes. Set the sha to zeros and rebuild to get the new hash.
+</Warning>
+
+<Tip>
+Rule of thumb: if you're about to `sed` a Makefile or source file to inject a compiler flag, check if a compiler flag block (`cpp_defines`, `c_flags`, `ld_flags`, etc.) or a [shim](/packaging/shims) can solve it instead. `sed` in `patch` should be the last resort.
+</Tip>

@@ -1,0 +1,74 @@
+---
+title: "IX: Hermetic Source-Based Package Manager"
+sidebarTitle: "Introduction"
+description: "IX is a source-based, content-addressed package manager built on static linking, hermetic builds, and Jinja2 recipe templates. Learn what makes it different."
+---
+
+IX is the package manager and build system at the heart of **stal/IX** (Stalix), a Linux distribution designed around explicit, auditable software composition. Unlike mainstream distributions that ship pre-built binaries from a central archive, IX builds every package from source using Jinja2-templated recipes, stores results in a content-addressed store at `/ix/store/<hash>-<pkg>`, and assembles user-visible environments — called **realms** — out of immutable store entries. The result is a system where "what is installed" is always traceable back to a build graph with no implicit host environment leakage.
+
+<Note>
+  IX and Stalix are an active engineering laboratory, not a polished consumer operating system. Expect large toolchain transitions, graphics stack experiments, and deliberate non-mainstream decisions. If you want a stable workstation today, use a mainstream distribution. If you want to explore how a correct-by-construction Linux could be built — welcome.
+</Note>
+
+## What IX Does
+
+Every package IX produces lands in the store at a path like `/ix/store/0GsKotnAh74LIcvO-bin-bzip2/`. The 22-character hash is derived from the package's full build inputs: source content, recipe, flags, and all transitive dependencies. Two builds that differ in any input produce different store paths; two builds that are identical produce the same path, letting IX skip redundant work automatically.
+
+Key properties of the build model:
+
+- **Source-first**: packages are built from source using explicit recipes. There are no pre-built binary blobs injected into the build graph by default.
+- **Static linking preference**: IX aggressively prefers statically linked binaries over shared library dependencies, eliminating runtime loader complexity, ABI fragility, and `.so` plugin surprise.
+- **Hermetic isolation**: build steps run in an isolated environment. The host's `/bin`, `/usr`, or ambient library paths cannot leak into a package build.
+- **Content-addressed outputs**: store paths are stable identifiers. Multiple users or system configurations can coexist in the same store without collision.
+- **Cross-target support**: packages can be built for a different OS or ABI than the host. The `bld/` package namespace exists specifically for host-only build tools that must not cross-compile.
+
+A **realm** is itself a store entry — a directory of symbolic links that assembles a coherent environment from individual package store entries. The anchor link `/ix/realm/<name>` points to the current realm in the store.
+
+## Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="Store" icon="database" href="/concepts/store">
+    The content-addressed store at `/ix/store/`. Every package output is immutable and identified by a hash of its full build inputs. Garbage collection removes entries unreachable from any realm anchor.
+  </Card>
+  <Card title="Realms" icon="layers" href="/concepts/realms">
+    Named environments assembled from store entries. The anchor link `/ix/realm/<name>` always points to the active realm. Users interact with a realm by adding it to `PATH`.
+  </Card>
+  <Card title="Packages" icon="box" href="/concepts/packages">
+    A single directory in the store, built from a recipe (`ix.sh`). Package identifiers are slash-delimited paths like `bin/bzip2` or `lib/openssl`. Flags parameterize builds without forking recipes.
+  </Card>
+  <Card title="Templates" icon="code" href="/concepts/templates">
+    Jinja2 templates (`ix.sh`) under `pkgs/` that describe how to fetch, patch, configure, build, and install a package. Templates compose via inheritance; shared build logic lives in `pkgs/die/`.
+  </Card>
+</CardGroup>
+
+## IX vs. Other Package Managers
+
+IX belongs to the **Nix/Guix family** in that it uses a content-addressed store, has hermetic builds, and treats the OS as a composition of immutable artifacts. The table below captures where IX shares those roots and where it intentionally diverges.
+
+| Property | Nix / Guix | IX |
+|---|---|---|
+| Store model | Content-addressed | Content-addressed |
+| Build hermeticity | Yes | Yes |
+| Package language | Turing-complete (Nix lang / Guile Scheme) | Non–Turing-complete(ish) Jinja2 templates |
+| Default linking | Shared libraries | Static linking preferred |
+| SUID binaries | Supported | Avoided by design |
+| Runtime `.so` plugins | Supported | Avoided by design |
+| Cross-compilation | Partial / complex | First-class (in progress) |
+| Scope | General-purpose distro | Engineering lab / research distro |
+
+The deliberate choice of Jinja2 templates instead of a Turing-complete package language means that dependency resolution and build planning are bounded computations. You cannot express arbitrary logic in a package definition, and that constraint is a feature: it keeps build graphs understandable and toolable.
+
+## Repository Structure
+
+The IX repository uses a top-level package namespace with directories that encode the role of every package in the build system:
+
+| Directory | Purpose |
+|---|---|
+| `bin/` | Executable binaries, built for the **target** platform |
+| `lib/` | Libraries, built for the **target** platform |
+| `bld/` | Build-time host tools (compilers, code generators, build systems). Built for the **host** only; never cross-compiled. Used exclusively during the build of other packages. |
+| `aux/` | Runtime data: fonts, terminfo databases, vendored source archives |
+| `etc/` | Configuration files and init scripts |
+| `set/` | Meta-package sets — groups of packages assembled together (e.g. CI sets, desktop environments) |
+
+Everything outside `bld/` must be able to cross-compile for the target platform. Package identifiers follow a structured naming convention: compound names are split at word boundaries into path components (`neovim` → `bin/neo/vim`), hyphens and underscores become `/`, and version numbers become additional components (`autoconf 2.72` → `bin/auto/conf/2/72`).

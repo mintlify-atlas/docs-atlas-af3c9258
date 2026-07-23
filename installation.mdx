@@ -1,0 +1,133 @@
+---
+title: "Installing IX on Linux and Darwin"
+sidebarTitle: "Installation"
+description: "Set up the IX package manager by cloning the repository and running the ix wrapper. Covers system mode, local mode, and key environment variables."
+---
+
+IX is distributed entirely as a source repository with a Python entrypoint wrapped in a shell script called `ix`. There is no binary installer, no package to download from a registry, and no system-level daemon to start. You clone the repository, run `./ix`, and IX bootstraps what it needs. The Python code lives under `core/`; the package set lives under `pkgs/`. Both ship together in the same repository so the tooling and the recipes are always in sync.
+
+<Note>
+  Always invoke IX through the `./ix` shell wrapper — never call the Python entry point (`core/main.py`) directly. The wrapper sets up environment variables (including `IX_BINARY`, `IX_DIR`, `IX_PKGS_ROOT`, and `IX_WHERE`) that the rest of the build system depends on. Bypassing it can produce a divergent store or silently incorrect builds.
+</Note>
+
+## Prerequisites
+
+Before using IX, confirm your system provides the following:
+
+- **Python 3** — IX's core is written in Python 3. No installation step is needed for IX's Python dependencies: Jinja2 and MarkupSafe are vendored inside the repository.
+- **A C compiler** — The host needs a C compiler (Clang is preferred; GCC works) available on `PATH` for bootstrapping. IX uses it to build the initial toolchain packages.
+- **Linux or Darwin** — IX is tested and used on Linux (x86_64, aarch64) and macOS (Darwin). The man page describes it as "statically build packages for Darwin/Linux with Clang".
+- **A writable `/ix` directory** (default store root) — IX writes to `/ix/store/` and `/ix/realm/`. You can override this with `IX_ROOT` (see below). On a system where you lack root, set `IX_ROOT` to a directory you own.
+
+## Clone and Use
+
+```bash
+git clone https://github.com/pg83/ix.git
+cd ix
+
+# Verify IX can build a package
+./ix build bin/b64
+```
+
+If the build completes successfully you will see a store path like `/ix/store/<hash>-bin-b64/` created under your `IX_ROOT`. That confirms IX, the host compiler, and the store location are all working.
+
+For ongoing use, you can keep the repository wherever you cloned it. IX reads the package set from the `pkgs/` directory relative to the `./ix` wrapper. You do not need to `make install` anything.
+
+## Operation Modes
+
+IX's behaviour is controlled by the `IX_EXEC_KIND` environment variable. The variable selects between three modes:
+
+<Tabs>
+  <Tab title="system">
+    **`IX_EXEC_KIND=system`** — IX operates as the system-wide package manager. This mode is the **default** when `/bin/bin_ix/assemble` exists, which is true on a running stal/IX (Stalix) installation.
+
+    In system mode, IX integrates with the Stalix init and assembly infrastructure. The `mut system` command rebuilds the system realm used at boot.
+
+    ```bash
+    IX_EXEC_KIND=system ./ix mut system
+    ```
+  </Tab>
+  <Tab title="local">
+    **`IX_EXEC_KIND=local`** — IX operates as a standalone package manager. This is the **default** when `/bin/bin_ix/assemble` does not exist, which covers every non-Stalix host (a developer laptop, a CI runner, a Darwin machine).
+
+    Local mode is the mode you use when following the quickstart on a regular Linux or macOS system.
+
+    ```bash
+    IX_EXEC_KIND=local ./ix build bin/b64
+    # or simply, since local is the default on non-Stalix hosts:
+    ./ix build bin/b64
+    ```
+  </Tab>
+  <Tab title="fake">
+    **`IX_EXEC_KIND=fake`** — IX does almost nothing. This mode exists for testing the command-line parsing and dispatch layers without triggering real builds or store mutations.
+
+    ```bash
+    IX_EXEC_KIND=fake ./ix mut gui bin/sway
+    ```
+  </Tab>
+</Tabs>
+
+## Store Location
+
+The entire IX store lives under a single root directory. The default is `/ix`.
+
+| Path | Contents |
+|---|---|
+| `/ix/store/` | Immutable package outputs, each in a subdirectory named `<22-char-hash>-<pkg-name>` |
+| `/ix/realm/` | Anchor symlinks pointing into `/ix/store/`. Each symlink names a realm (e.g. `system`, `boot`, your username). |
+| `/ix/trash/` | Store entries moved here by `gc` for asynchronous deletion. |
+
+To use a different root — for example, if you cannot write to `/ix` — set the `IX_ROOT` environment variable:
+
+```bash
+export IX_ROOT=/home/myuser/ix-store
+./ix build bin/b64
+```
+
+All store paths (`/ix/store/...`) and realm anchors (`/ix/realm/...`) will be created under the value of `IX_ROOT` instead.
+
+## Using a Custom Package Set
+
+By default, IX resolves package recipes from the `pkgs/` directory inside the repository (the "builtin" set). The `IX_PATH` environment variable lets you point IX at additional or alternative recipe directories, using a colon-separated list of paths. The special token `{builtin}` expands to the default `pkgs/` directory.
+
+```bash
+# Use only a custom overlay (no builtin packages)
+export IX_PATH=/home/myuser/my-pkgs
+
+# Use a custom overlay, falling back to the builtin set
+export IX_PATH=/home/myuser/my-pkgs:{builtin}
+
+# Default (implicit)
+export IX_PATH={builtin}
+```
+
+When IX looks up a package by name, it searches the paths in `IX_PATH` left to right and uses the first match. This allows you to shadow individual packages from the builtin set with local versions.
+
+## Thread Configuration
+
+IX parallelises builds using a thread pool. The default thread count equals the number of logical CPUs on the build host. You can override this with `IX_THREADS`:
+
+```bash
+# Use 4 parallel build threads
+IX_THREADS=4 ./ix build bin/b64
+```
+
+Setting `IX_THREADS=1` is useful for debugging build scripts or isolating log output from interleaved parallel builds.
+
+## Environment Variable Reference
+
+The following variables are read by IX at startup. All are optional unless noted.
+
+| Variable | Default | Description |
+|---|---|---|
+| `IX_ROOT` | `/ix` | Root of the IX store. Store entries live at `$IX_ROOT/store/`, realm anchors at `$IX_ROOT/realm/`. |
+| `IX_EXEC_KIND` | `system` if `/bin/bin_ix/assemble` exists, else `local` | Operation mode: `system`, `local`, or `fake`. |
+| `IX_PATH` | `{builtin}` | Colon-separated list of package recipe directories. `{builtin}` expands to the repository's `pkgs/` directory. |
+| `IX_THREADS` | CPU count | Number of parallel build threads. |
+| `IX_VERBOSE` | unset | If set, show package dependencies during a build. |
+| `IX_DUMP_GRAPH` | unset | If set, print the build graph as JSON and exit without building. |
+| `IX_DUMP_REPO` | unset | If set, print the build graph as JSON (but continue building). |
+| `IX_BINARY` | set by `./ix` | Path to the `ix` wrapper. Set automatically — do not override. |
+| `IX_DIR` | set by `./ix` | Directory containing the `ix` wrapper. Set automatically. |
+| `IX_PKGS_ROOT` | set by `./ix` | Path to the IX repository root. Set automatically. |
+| `IX_WHERE` | set by `./ix` | Path to `pkgs/die/scripts` inside the repository. Set automatically. |

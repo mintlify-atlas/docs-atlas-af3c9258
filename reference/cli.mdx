@@ -1,0 +1,274 @@
+---
+title: "IX CLI Reference: All Subcommands and Flags"
+sidebarTitle: "CLI Reference"
+description: "Complete reference for all ix subcommands: mut, build, let, run, gc, list, purge, dep, and tool. Includes syntax, flags, and exit codes."
+---
+
+IX is invoked as `ix <subcommand> [arguments...]` using the `./ix` wrapper at the repository root. Every subcommand is documented below with its full syntax, arguments, and behavior. All subcommands share a common flag syntax: `--name=[value]` for per-package or per-realm configuration.
+
+## Synopsis
+
+```
+ix subcommand [argument...]
+```
+
+---
+
+## `ix mut`
+
+Modify one or more realms by installing or removing packages.
+
+**Syntax:**
+
+```bash
+ix mut [realm [flag...] [package [flag...]...]...]
+```
+
+**Description:**
+
+`mut` is the primary command for managing realm contents. Package names are prefixed with `+` to add (the default) or `-` to remove. Flags can be scoped to a specific package or to the entire realm using `--name=[value]`. If no realm is specified, IX defaults to the realm matching your current username. If no packages are specified, IX updates all packages already installed in the specified realms.
+
+**Examples:**
+
+```bash
+# Install Sway in the gui realm
+ix mut gui bin/sway
+
+# Install Sway with AMD GPU acceleration
+ix mut gui bin/sway --mesa_driver=radv
+
+# Set a realm-wide flag for all packages in gui
+ix mut gui --mesa_driver=radv
+
+# Remove a flag (reset to default) in the system realm
+ix mut system --mesa_driver=-
+
+# Add a browser to the gui realm
+ix mut gui bin/epiphany
+
+# Remove Sway and install Wayfire in one operation
+ix mut gui -bin/sway bin/wayfire
+
+# Update all packages in the gui realm
+ix mut gui
+```
+
+---
+
+## `ix build`
+
+Build packages in a temporary ephemeral realm without modifying any existing realm.
+
+**Syntax:**
+
+```bash
+ix build [package [flag...]...]
+```
+
+**Description:**
+
+`build` runs `let` over a freshly created temporary realm that is discarded after the command completes. It is the standard way to test whether a package or set of packages builds correctly, without touching any live realm. Flags work the same way as in `mut` and `let`.
+
+**Examples:**
+
+```bash
+# Build a single package
+ix build bin/b64
+
+# Build for a specific target platform
+ix build bin/b64 --target=freebsd-x86_64
+```
+
+---
+
+## `ix let`
+
+Compute a new realm state without switching the anchor link.
+
+**Syntax:**
+
+```bash
+ix let [realm [flag...] [package [flag...]...]...]
+```
+
+**Description:**
+
+`let` performs the same resolution and build steps as `mut` but stops short of updating the anchor symlink in `/ix/realm/`. Use it to inspect the resulting realm — check installed packages, versions, and flag values — before committing the change with `mut`. The argument syntax is identical to `mut`.
+
+**Example:**
+
+```bash
+# Preview the result of adding a new window manager
+ix let gui bin/new-wm
+```
+
+---
+
+## `ix run`
+
+Prepare a temporary realm with specified packages and execute a command inside it.
+
+**Syntax:**
+
+```bash
+ix run [package [flag...]...] -- command [argument...]
+```
+
+**Description:**
+
+`run` builds a new realm containing the listed packages and immediately executes the given command within that realm's environment. The `--` separator is required between the package list and the command to run. The realm is ephemeral and not anchored.
+
+**Example:**
+
+```bash
+# Run zstd from a freshly built realm
+ix run bin/zstd -- zstd --help
+```
+
+---
+
+## `ix gc`
+
+Collect garbage: move unused packages from the store to the trash.
+
+**Syntax:**
+
+```bash
+ix gc [prefix...]
+```
+
+**Description:**
+
+`gc` scans `/ix/store/` and identifies all packages that are not reachable from any anchor realm in `/ix/realm/`. Unreachable packages are moved to `/ix/trash/` for asynchronous removal. You can supply one or more prefix names to restrict which package kinds are considered; the default set of prefixes is `lib`, `bin`, `lnk`, `aux`, and `rlm`.
+
+**Examples:**
+
+```bash
+# Collect all garbage (default prefixes)
+ix gc
+
+# Only collect lib and bin packages
+ix gc lib bin
+```
+
+---
+
+## `ix list`
+
+List realms or the packages installed within them.
+
+**Syntax:**
+
+```bash
+ix list [realm...]
+```
+
+**Description:**
+
+When called without arguments, `list` prints all known realms. When one or more realm names are provided, it prints the packages installed in each of those realms, along with any flags that were set at installation time.
+
+**Examples:**
+
+```bash
+# List all realms
+ix list
+
+# Show packages installed in the gui realm
+ix list gui
+
+# Show packages installed in the system realm
+ix list system
+```
+
+---
+
+## `ix purge`
+
+Remove anchor links for one or more realms.
+
+**Syntax:**
+
+```bash
+ix purge realm...
+```
+
+**Description:**
+
+`purge` removes the anchor symlinks for the named realms from `/ix/realm/`. This does not delete the underlying store entries — those are cleaned up by `ix gc`. At least one realm name must be provided.
+
+**Example:**
+
+```bash
+# Remove the anchor link for the gui realm
+ix purge gui
+```
+
+---
+
+## `ix dep`
+
+Print the `ix.sh` recipe files for a package and all its dependencies.
+
+**Syntax:**
+
+```bash
+ix dep package...
+```
+
+**Description:**
+
+`dep` resolves the full dependency tree for each listed package and prints the path to every `ix.sh` recipe file involved. This is useful for auditing the complete set of recipes that contribute to a package build, or for feeding the list into other tools.
+
+**Example:**
+
+```bash
+# Print all ix.sh files for curl and its dependencies
+ix dep bin/curl
+```
+
+---
+
+## `ix tool`
+
+Access auxiliary tools implemented as separate scripts outside the core.
+
+**Syntax:**
+
+```bash
+ix tool [tool [argument...]...]
+```
+
+**Description:**
+
+`tool` dispatches to one of several helper scripts that extend IX with functionality whose semantics are not yet fully stabilized or whose scope falls outside the core. If no tool name is given, IX attempts to invoke the `list` tool (which does not exist by default, producing an error — this is the documented behavior).
+
+**Available tools:**
+
+| Tool | Description |
+|------|-------------|
+| `listall` | List all packages known to IX |
+| `mkfs` | Filesystem image creation helper |
+| `pypi` | PyPI package metadata helper |
+| `reconf` | Reconfigure a package recipe |
+| `regen` | Regenerate derived package files |
+| `upver` | Update the version of a package |
+
+**Examples:**
+
+```bash
+# List all packages available in the repository
+ix tool listall
+
+# Update the version of bin/curl
+ix tool upver bin/curl
+```
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | The operation completed successfully |
+| `1` | IX was invoked without a subcommand, with an invalid subcommand, an internal error was encountered, or a keyboard interrupt was triggered |
+| *subprocess code* | If a subprocess invoked by IX failed, IX returns that subprocess's exit code directly |

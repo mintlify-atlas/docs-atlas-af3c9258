@@ -1,0 +1,110 @@
+---
+title: "Package Flags and Parametrization in IX Recipes"
+sidebarTitle: "Flags"
+description: "Use Jinja2 template flags to parametrize IX packages at install time. Flags appear as --name=value on the command line and as variables in ix.sh templates."
+---
+
+IX packages can expose configuration flags that users pass on the command line as `--name=value`. Inside the recipe template, flags become Jinja2 variables that control build behavior — selecting implementations, enabling features, or adjusting install paths. Because flags are part of the content-addressed UID computation, the same package with different flags produces a distinct store path, allowing multiple variants to coexist.
+
+## Passing Flags on the Command Line
+
+Flags are passed when building a package or when mutating a realm:
+
+```bash
+# Build a specific package with a flag
+ix build bin/sway --mesa_driver=radv
+
+# Add a package to a realm with a flag
+ix mut gui bin/sway --mesa_driver=radv
+
+# Set a flag for all packages in a realm
+ix mut gui --mesa_driver=radv
+
+# Remove/reset a flag (single dash as value)
+ix mut system --mesa_driver=-
+```
+
+Flags set on a realm apply to all packages in it unless overridden at the individual package level.
+
+## Accessing Flags in Templates
+
+Inside `ix.sh`, flags are available as Jinja2 variables in the template context. Use `| default(...)` to provide fallback values:
+
+```jinja2
+{% block configure_flags %}
+--with-python={{python_ver | default('3')}}
+{% endblock %}
+```
+
+Boolean-style flags (set to `1`) work with `{% if %}`:
+
+```jinja2
+{% if debug %}
+{% block cmake_flags %}
+CMAKE_BUILD_TYPE=Debug
+{% endblock %}
+{% endif %}
+```
+
+Usage: `ix build bin/mypkg --debug=1`
+
+Architecture-derived boolean flags are also available directly in every template:
+
+| Variable | True when |
+|---|---|
+| `x86_64` | Target is x86-64 |
+| `aarch64` | Target is AArch64 |
+| `linux` | Target OS is Linux |
+| `mingw32` | Target is Windows/MinGW |
+| `native` | Host equals target (no cross-compilation) |
+| `boot` | Building a toolchain bootstrap package |
+
+## Package Variants with Flags
+
+Because flags are folded into the content-addressed UID, the same package with different flag values produces different store paths and can coexist in the store simultaneously:
+
+```bash
+# Two builds of sway with different GPU drivers — both can exist in store
+ix build bin/sway --mesa_driver=radv    # AMD
+ix build bin/sway --mesa_driver=iris    # Intel
+```
+
+This is how `lib/z` selects its implementation: `lib/z` is a hub that dispatches to `lib/z/ng` (zlib-ng, default on x86_64), `lib/z/adler` (on other arches), or `lib/z/stock` when `zlib_ver=stock` is passed.
+
+## Version Sub-packages
+
+Versioned variants follow the path-component convention for version numbers:
+
+| Package path | Meaning |
+|---|---|
+| `bin/auto/conf/2/72` | autoconf 2.72 |
+| `bin/bash/5` | bash 5 |
+| `lib/openssl/3` | OpenSSL 3.x |
+| `lib/openssl/1` | OpenSSL 1.1 (legacy) |
+| `bin/curl/openssl` | curl built against OpenSSL |
+| `bin/curl/gnutls` | curl built against GnuTLS |
+
+The top-level name (`lib/openssl`, `bin/curl`) is a hub that selects a default implementation via `lib_deps` or `run_deps`, and can be overridden with a flag:
+
+```jinja2
+{% extends '//die/hub.sh' %}
+
+{% block lib_deps %}
+lib/openssl/{{libopenssl_ver or '3'}}
+{% endblock %}
+```
+
+Consumers write `lib/openssl` and get version 3 by default. To pin version 1: `lib/openssl(libopenssl_ver=1)`.
+
+## The `unwrap` and `runit` Suffixes
+
+Two suffixes appear throughout the `bin/` tree with fixed meanings:
+
+- **`unwrap`** — the full package with all runtime dependencies composed in. For example, `bin/git/unwrap` is git plus its runtime deps (SSH client, credential helper, etc.), whereas `bin/git` alone is the minimal binary.
+- **`runit`** — service and init scripts for the runit supervisor. For example, `bin/sshd/runit` contains the runit `run` script for the SSH daemon.
+
+A `t` suffix denotes an intermediate template package — a shared `ix.sh` base extended by sibling packages in the same tree, not meant to be built directly.
+
+<Tip>
+Use `--name=-` (value is a single dash) to remove or unset a flag that was previously set on a realm. For example: `ix mut system --mesa_driver=-` removes the `mesa_driver` flag from the system realm.
+</Tip>

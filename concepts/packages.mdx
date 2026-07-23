@@ -1,0 +1,136 @@
+---
+title: "How IX Packages Work: Source Builds and Static Linking"
+sidebarTitle: "Packages"
+description: "IX packages are source-built, statically linked artifacts stored at content-addressed paths. Understand the package model, build isolation, and the package directory structure."
+---
+
+Every IX package is a directory in `/ix/store/` produced by building software from source using a Jinja2 recipe template. The default build strategy is static linking: executables carry their dependencies inside the binary rather than depending on shared libraries at runtime. This eliminates an entire class of runtime surprises — broken `LD_LIBRARY_PATH`, mismatched `.so` versions, missing plugins — at the cost of larger binaries. IX also avoids SUID binaries by default, removing the classic "SUID + plugins = privilege escalation" attack surface.
+
+## Package Identity
+
+A package's identity is its path under `pkgs/`. The directory containing the `ix.sh` recipe file is the package name:
+
+| Recipe file | Package name |
+|-------------|-------------|
+| `pkgs/bin/git/ix.sh` | `bin/git` |
+| `pkgs/bin/git/unwrap/ix.sh` | `bin/git/unwrap` |
+| `pkgs/lib/openssl/3/ix.sh` | `lib/openssl/3` |
+| `pkgs/bld/cmake/ix.sh` | `bld/cmake` |
+
+The store path for a package combines a 22-character content-addressed hash with the package name (slashes replaced by hyphens):
+
+```text
+/ix/store/0GsKotnAh74LIcvO-bin-bzip2/
+```
+
+Because the hash encodes the exact build inputs — source URL, dependencies, flags, build script — different versions or parametrizations of the same package produce different store paths and never conflict.
+
+## Package Namespace Directories
+
+The top-level directories under `pkgs/` define a namespace that also conveys where and how a package is used:
+
+| Namespace | Purpose |
+|-----------|---------|
+| `bin/` | Executable binaries and tools built for the **target** platform |
+| `lib/` | Static libraries and headers built for the **target** platform |
+| `bld/` | Build-time **host** tools: compilers, code generators, build systems, interpreters |
+| `aux/` | Runtime data: fonts, terminfo, CA bundles, vendored source archives |
+| `etc/` | Configuration files and init/service scripts |
+| `set/` | Meta-package sets — collections of other packages with no build of their own |
+
+<Note>
+`bld/` packages are built for the **host** machine running the build, not for the target platform. This distinction matters for cross-compilation: a `bld/cmake` package provides a `cmake` binary that runs on the build host, while `lib/c` and `bin/git` are built for (and run on) the target. Everything outside `bld/` must be cross-compilable.
+</Note>
+
+## Hermetic Builds
+
+IX build steps run in an isolated environment. No host compiler, no host header, no host library paths appear in the build environment. `PATH` during a build is constructed solely from `${IX_B_DIR}` entries — host tools from `bld/` packages declared in the recipe. The host system's `/usr/bin`, `/usr/lib`, and `/usr/include` are invisible.
+
+This means:
+- A package that builds successfully on one machine will build identically on another with the same inputs.
+- A missing dependency causes a build failure, not a silent link against whatever happens to be on the host.
+- All inputs must be declared explicitly in the recipe.
+
+Build-time tools that would otherwise be pulled from the host (such as `cmake`, `perl`, `python`, `bison`, or `flex`) must appear as `bld/` packages in the recipe's `bld_tool` block.
+
+## Static Linking
+
+IX defaults to static linking for all C and C++ packages. The CMake and autoconf build templates automatically pass `-DBUILD_SHARED_LIBS=OFF`, `--disable-shared`, and `--enable-static`. Shared object files (`.so`, `.so.*`, `.la`) are deleted during postinstall cleanup.
+
+The benefits align with the stal/IX design philosophy:
+
+- No shared library ABI compatibility constraints — a library update only affects packages rebuilt against it.
+- No dynamic linker at runtime — executables start without `ld.so` probing `LD_LIBRARY_PATH`.
+- No "plugin loaded from filesystem at runtime" attack surface.
+
+Where shared libraries are genuinely required (e.g. plugin architectures), the `die/dl/` template family and the `wrap_rdynamic` build flag provide controlled support.
+
+## The `unwrap` Convention
+
+Many packages in IX appear in two forms:
+
+<CardGroup cols={2}>
+  <Card title="Base package (bin/foo)" icon="cube">
+    The minimal form. Contains only the core build output — typically the binary stripped of runtime data or optional dependencies. Used as a dependency by other packages, or when you want fine-grained control over what is installed.
+  </Card>
+  <Card title="Unwrap package (bin/foo/unwrap)" icon="box-open">
+    The full form with runtime dependencies bundled via `run_deps`. Installing `bin/git/unwrap` in a realm brings in `bin/git/cred`, `bin/openssh/client`, and other packages needed for typical `git` usage. This is what most users want.
+  </Card>
+</CardGroup>
+
+The `unwrap` suffix is a naming convention, not a special build step. The `bin/foo/unwrap` package is typically a hub (`die/hub.sh`) whose only content is a `run_deps` block pointing at `bin/foo` and its companions:
+
+```jinja2
+{% extends '//die/hub.sh' %}
+
+{% block run_deps %}
+bin/git/cred
+bin/git/unwrap
+bin/openssh/client
+{% endblock %}
+```
+
+## Flags and Parametrization
+
+Packages can be parametrized with flags that alter their build configuration. Flags are key-value pairs passed when referencing a package:
+
+```sh
+# Install Sway with the AMD GPU Mesa driver
+ix mut gui bin/sway --mesa_driver=radv
+
+# Install Python version 12
+bin/python(python_ver=12)
+
+# Install curl built with HTTP/1 only
+lib/curl(libcurl_ver=http1)
+```
+
+Inside a recipe template, flags are available as Jinja2 variables. The same package built with different flags produces a different hash and lands at a different store path — the two versions coexist without conflict.
+
+Flags can be applied at the realm level (affecting all packages), at the package level, or in dependency declarations. See [Package Flags and Parametrization](/packaging/flags) for the full details.
+
+## Postinstall Cleanup
+
+After the build and install steps run, IX automatically cleans up the output directory based on the package kind:
+
+<Tabs>
+  <Tab title="bin/ packages">
+    - `lib/` and `include/` subdirectories are deleted (binaries don't ship headers)
+    - Executables in `bin/` are stripped with `llvm-strip -S`
+    - All `.a` and `.o` files are deleted
+    - Broken symlinks and empty directories are pruned
+  </Tab>
+  <Tab title="lib/ packages">
+    - `bin/` is deleted except for `*-config` scripts (moved to `lib/bin/`)
+    - All `.so`, `.so.*`, and `.la` files are deleted
+    - `share/cmake` is moved to `lib/`
+    - `share/` is moved to `lib/aux/`
+    - `libexec/` and `etc/` are deleted
+  </Tab>
+  <Tab title="aux/ packages">
+    - Only data files are kept
+    - `bin/`, `lib/`, `include/`, and `doc/` are removed
+  </Tab>
+</Tabs>
+
+This automatic cleanup enforces IX's packaging conventions and prevents accidental mixing of binary, library, and data content within a single package.

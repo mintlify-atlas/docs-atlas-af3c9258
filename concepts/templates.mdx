@@ -1,0 +1,184 @@
+---
+title: "Package Templates and the Jinja2 Build System"
+sidebarTitle: "Templates"
+description: "IX package recipes are Jinja2 templates that inherit from a hierarchy of build-system templates in pkgs/die/. Learn the template chain and how to choose the right base."
+---
+
+IX package recipes are Jinja2 templates. Every `ix.sh` file starts with a single `{% extends %}` directive that selects the appropriate build-system base template from the `pkgs/die/` hierarchy. Everything that follows is a set of block overrides that customize the build: which source to fetch, which dependencies to link against, which configure flags to pass, and which install steps to run. You never write a raw shell build script — you override named blocks in a template that already knows how to call `cmake`, `make`, `cargo`, or `go build` correctly.
+
+## Template Inheritance Chain
+
+All build templates ultimately descend from a common base. Understanding the chain helps you know which blocks are available and what each layer contributes:
+
+```text
+base.json                    ← JSON descriptor structure
+  └── ix.json                ← standard dep/fetch variable blocks
+        └── script.json      ← wraps build script in JSON
+              └── sh0.sh     ← build isolation (jail / tmpfs / unshare)
+                    └── sh2.sh   ← prepare_f / cleanup_f / fix_mtime / chmod_ro
+                          └── sh.sh    ← source_env(), toolchain setup helpers
+                                └── base.sh  ← step_* functions + do_* pipeline
+                                      └── die/std/ix.sh   ← postinstall, strip, purge_dynlib
+                                            └── die/c/ix0.sh  ← wrap_cc plugin injection
+                                                  └── die/c/ix1.sh  ← compiler init
+                                                        └── die/c/ix2.sh  ← host/target TC setup
+                                                              └── die/c/ix3.sh  ← CPPFLAGS / CFLAGS / LDFLAGS
+                                                                    └── die/c/ix.sh   ← base C package
+                                                                          ├── make.sh
+                                                                          │     ├── configure.sh
+                                                                          │     │     └── autohell.sh
+                                                                          │     │           └── autorehell.sh
+                                                                          ├── ninja.sh
+                                                                          │     ├── cmake.sh
+                                                                          │     └── meson.sh
+                                                                          ├── waf.sh
+                                                                          ├── gn.sh
+                                                                          └── kconfig.sh
+```
+
+Rust and Go packages share `die/c/ix.sh` as their foundation, then diverge for language-specific toolchain handling:
+
+```text
+die/c/ix.sh
+  ├── die/rust/cargo.sh
+  └── die/go/base.sh
+        └── die/go/build.sh   ← adds vendored module support
+```
+
+## Choosing a Template
+
+Select the template that matches the upstream build system. Use `grep -r 'extends' pkgs/bin/ | grep cmake` (or the relevant build system name) to find existing examples in the package tree.
+
+| Template | `{% extends … %}` | When to use |
+|----------|-------------------|-------------|
+| GNU Make | `//die/c/make.sh` | `make && make install`, no configure script |
+| Autoconf | `//die/c/configure.sh` | `./configure && make && make install` |
+| Autotools | `//die/c/autohell.sh` | autoconf + automake, `autoreconf` needed |
+| CMake | `//die/c/cmake.sh` | CMake |
+| Meson | `//die/c/meson.sh` | Meson |
+| Ninja (raw) | `//die/c/ninja.sh` | Ninja without CMake or Meson |
+| WAF | `//die/c/waf.sh` | WAF build system |
+| GN | `//die/c/gn.sh` | Google's GN (Chromium ecosystem) |
+| Kconfig | `//die/c/kconfig.sh` | Linux kernel-style Kconfig |
+| Rust/Cargo | `//die/rust/cargo.sh` | Cargo packages (uses vendored `.pzd` archive) |
+| Go modules | `//die/go/build.sh` | Go (uses vendored `.pzd` archive) |
+| Meta | `//die/hub.sh` | No build; just wires together other packages |
+| Generated | `//die/gen.sh` | Shell-only install step, no compilation |
+
+<Tip>
+When choosing between `//die/c/autohell.sh` and `//die/c/autorehell.sh`, prefer `autorehell.sh` — it runs `autoreconf` to regenerate the `configure` script from `configure.ac`. Fall back to `autohell.sh` only if `autoreconf` fails for the specific package.
+</Tip>
+
+## Jinja2 Conventions
+
+IX uses a consistent set of Jinja2 idioms across all templates:
+
+| Syntax | Meaning |
+|--------|---------|
+| `{% extends '//die/c/cmake.sh' %}` | Inherit from a template; `//` resolves to the `pkgs/` root |
+| `{% block name %} … {% endblock %}` | Override a named block from the parent template |
+| `{{super()}}` | Include the parent block's content at this position |
+| `{{self.version().strip()}}` | Call another block as a method — useful inside `fetch` to reference the version |
+| `{{target.rust}}`, `{{host.go_arch}}` | Architecture variables for the target or host platform |
+| `{{uniq_id}}` | The content-addressed UID of this package — use to namespace install paths |
+| `{{out}}`, `{{tmp}}`, `{{src}}` | Build directory variables (output, temp workspace, unpacked sources) |
+
+Blocks that contain **lists of items** — such as `bld_libs`, `bld_tool`, `run_deps`, `configure_flags`, and `cmake_flags` — are whitespace-separated. The template infrastructure converts them to JSON arrays automatically via the `parse_list` / `list_to_json` filters. You do not need to add commas or brackets.
+
+Template paths use two resolution schemes:
+
+- `//die/c/cmake.sh` — absolute from the `pkgs/` root (`//` = `pkgs/`)
+- `t/ix.sh` — relative to the current package directory (used for shared base templates within a package subtree, e.g. `lib/openssl/t/ix.sh` shared by `lib/openssl/1/` and `lib/openssl/3/`)
+
+## A Minimal Package Example
+
+The following is the complete recipe for `bin/minised`, a C program built with plain Make. It is taken directly from the IX package development guide and illustrates all the essential blocks:
+
+```jinja2
+{% extends '//die/c/make.sh' %}
+
+{% block pkg_name %}
+minised
+{% endblock %}
+
+{% block version %}
+1.16
+{% endblock %}
+
+{% block fetch %}
+http://dl.exactcode.de/oss/minised/minised-{{self.version().strip()}}.tar.gz
+46e072d5d45c9fd3d5b268523501bbea0ad016232b2d3f366a7aad0b1e7b3f71
+{% endblock %}
+
+{% block bld_libs %}
+lib/c
+{% endblock %}
+```
+
+That is the entire package definition. The `//die/c/make.sh` template already knows how to call `make -j$(nproc)` and `make install`, how to set `PREFIX`, how to apply static-linking flags, and how to run postinstall cleanup. The recipe only describes what is unique to this package: its name, version, source URL with SHA-256 checksum, and its single C library dependency.
+
+<Note>
+The `fetch` block contains the download URL on the first line and its **SHA-256 hex digest** on the second. The digest is mandatory — builds are hermetic and the fetch is verified before unpacking. Obtain the hash with `curl -fsSL <url> | sha256sum`.
+</Note>
+
+## Key Block Reference
+
+The following blocks appear in most C/C++ packages. Blocks not listed here are provided by parent templates and only need overriding when the default behaviour is wrong for a specific package.
+
+| Block | Template layer | Purpose |
+|-------|---------------|---------|
+| `pkg_name` | `ix.json` | Upstream project name (used in directory names and configure `--prefix`) |
+| `version` | `ix.json` | Upstream version string |
+| `fetch` | `ix.json` | Source URL + SHA-256 (one pair per archive; multiple pairs allowed) |
+| `bld_libs` | `die/c/ix.sh` | Static libraries to link against (target arch); also exposes their headers |
+| `bld_tool` | `die/c/ix.sh` | Host executables available on `PATH` during build (`bld/cmake`, `bld/perl`, etc.) |
+| `lib_deps` | `die/c/ix.sh` | Libraries **exported** to packages that depend on this one (for `lib/` packages) |
+| `run_deps` | `ix.json` | Runtime packages composed into the realm when this package is installed |
+| `configure_flags` | `die/c/configure.sh` | Flags passed to `./configure` |
+| `cmake_flags` | `die/c/cmake.sh` | `-D<flag>` arguments to `cmake` |
+| `meson_flags` | `die/c/meson.sh` | `-D<flag>` arguments to `meson setup` |
+| `patch` | `base.sh` | Shell commands to patch sources after unpacking |
+| `install` | `base.sh` | Shell commands for the install step; output goes to `${out}` |
+| `env` | `die/c/ix.sh` | Shell variables exported to all downstream consumers |
+| `cpp_defines` | `die/c/ix3.sh` | `-D<item>` defines added to `CPPFLAGS` |
+| `cpp_includes` | `die/c/ix3.sh` | `-I<item>` paths added to `CPPFLAGS` |
+| `ld_flags` | `die/c/ix3.sh` | Raw flags appended to `LDFLAGS` |
+
+## Meta-packages and Generated Packages
+
+Not all packages compile source code. Two special templates handle the remaining cases:
+
+<Tabs>
+  <Tab title="Hub (meta-package)">
+    `//die/hub.sh` produces a package with no source and no build step. It simply declares which other packages form a logical unit via `run_deps` or `lib_deps`. Use it to group packages that belong together, to provide a stable name that dispatches to a versioned implementation, or to bundle a binary with its runtime companions.
+
+    ```jinja2
+    {% extends '//die/hub.sh' %}
+
+    {% block run_deps %}
+    bin/git/cred
+    bin/git/unwrap
+    bin/openssh/client
+    {% endblock %}
+    ```
+
+    Hub packages are also used for version dispatch — `lib/z` is a hub that selects `lib/z/ng`, `lib/z/stock`, or `lib/z/adler` depending on architecture and flags.
+  </Tab>
+  <Tab title="Gen (generated files)">
+    `//die/gen.sh` skips the unpack and build steps entirely. Only `step_setup` (which sources the target environment) and your `install` block run. Use it for packages that only generate configuration files, init scripts, or other data without compiling anything.
+
+    ```jinja2
+    {% extends '//die/gen.sh' %}
+
+    {% block install %}
+    mkdir -p ${out}/etc/myapp
+    cat > ${out}/etc/myapp/config.conf << 'EOF'
+    option = value
+    EOF
+    chmod 644 ${out}/etc/myapp/config.conf
+    {% endblock %}
+    ```
+
+    Gen packages are commonly used under `etc/` for init scripts and system configuration.
+  </Tab>
+</Tabs>

@@ -1,0 +1,100 @@
+---
+title: "IX Package Anatomy: ix.sh Recipe Structure"
+sidebarTitle: "Anatomy"
+description: "Every IX package is a directory with an ix.sh Jinja2 template. Learn the required structure, key blocks, and how the directory path becomes the package name."
+---
+
+Every IX package is a directory somewhere under `pkgs/` that contains a single file named `ix.sh`. The directory path relative to `pkgs/` is the package name — there is no separate manifest or naming field for the package identifier. The `ix.sh` file itself is a Jinja2 template that extends one of the base build-system templates under `pkgs/die/`, inheriting a complete build pipeline for the chosen build system.
+
+## Package Name = Directory Path
+
+The directory path doubles as the canonical package identifier throughout the build system. There are no exceptions: the path is the name.
+
+| File path | Package name |
+|---|---|
+| `pkgs/bin/git/unwrap/ix.sh` | `bin/git/unwrap` |
+| `pkgs/lib/openssl/ix.sh` | `lib/openssl` |
+| `pkgs/bld/cmake/ix.sh` | `bld/cmake` |
+| `pkgs/bin/neo/vim/ix.sh` | `bin/neo/vim` |
+| `pkgs/lib/z/ix.sh` | `lib/z` |
+
+Package names follow strict naming conventions. Compound project names are split into path components at word boundaries (`neovim` → `bin/neo/vim`, `autoconf` → `bin/auto/conf`). Hyphens and underscores become `/`. Version numbers become path components (`autoconf 2.72` → `bin/auto/conf/2/72`). Well-known single-word names stay as-is (`wireshark`, `openssl`, `coreutils`).
+
+## Minimal Package Example
+
+Below is the complete `ix.sh` for `bin/minised` — a C program built with plain Make. This is the entire package definition; no Makefile is shipped alongside it.
+
+```jinja2
+{% extends '//die/c/make.sh' %}
+
+{% block pkg_name %}
+minised
+{% endblock %}
+
+{% block version %}
+1.16
+{% endblock %}
+
+{% block fetch %}
+http://dl.exactcode.de/oss/minised/minised-{{self.version().strip()}}.tar.gz
+46e072d5d45c9fd3d5b268523501bbea0ad016232b2d3f366a7aad0b1e7b3f71
+{% endblock %}
+
+{% block bld_libs %}
+lib/c
+{% endblock %}
+```
+
+Walking through each block:
+
+- `{% extends '//die/c/make.sh' %}` — selects the GNU Make build template. `//` means relative to the `pkgs/` root.
+- `pkg_name` — the human-readable name of the package (used in log output and store paths).
+- `version` — the upstream version string. Other blocks can reference it with `{{self.version().strip()}}`.
+- `fetch` — the source URL followed by its SHA-256 hex digest on the next line. The build system downloads and verifies this before unpacking.
+- `bld_libs` — static libraries to link against. `lib/c` is required for virtually every C package.
+
+The template `make.sh` already knows how to call `make -j$(nproc)` and `make install` with the correct `PREFIX`. You only override what differs from the default.
+
+## Key Blocks
+
+Every `ix.sh` is composed of block overrides. The most important blocks are:
+
+| Block | Purpose |
+|---|---|
+| `pkg_name` | Human name of the package (shown in logs and store paths) |
+| `version` | Version string; accessible via `{{self.version().strip()}}` in other blocks |
+| `fetch` | URL + SHA-256 for tarball download |
+| `bld_libs` | Static libraries linked into the artifact (target architecture) |
+| `bld_tool` | Executables available on `PATH` during the build (host architecture) |
+| `lib_deps` | Libraries exported to packages that depend on this one |
+| `run_deps` | Runtime packages needed when this package executes |
+| `patch` | Shell code to patch sources after unpack (runs in a subshell) |
+| `build` | Shell code to compile |
+| `install` | Shell code to install artifacts into `${out}` |
+
+Use `{{super()}}` inside any block to include the parent template's content at that position, then add to it.
+
+## Build Directory Variables
+
+The build environment exposes a fixed set of path variables. All output must go through `${out}` — never write to `/usr`, `/lib`, or any absolute system path.
+
+| Variable | Meaning |
+|---|---|
+| `${out}` | Output directory; this becomes the final content-addressed store path |
+| `${tmp}` | Temporary build workspace (discarded after build) |
+| `${src}` | Directory where downloaded sources are unpacked |
+| `${bld}` | Build workspace inside `${tmp}` |
+| `${uid}` | Content-addressed UID of this package |
+| `${make_thrs}` | Thread count for parallel builds |
+
+Everything placed in `${out}` during the `install` step becomes the package artifact. The post-install step then prunes it based on package kind (`bin`, `lib`, `aux`).
+
+## The `//` Prefix
+
+The `//` prefix in `{% extends '//die/c/cmake.sh' %}` means "relative to the `pkgs/` root directory." It is the standard way to reference any template or package from any location in the tree.
+
+A bare relative path like `t/ix.sh` (no leading `//`) is resolved relative to the current package directory. This is used for shared base templates within a versioned sub-package tree — for example, `lib/openssl/3/ix.sh` and `lib/openssl/1/ix.sh` both extend `lib/openssl/t/ix.sh` via the relative form.
+
+<Tip>
+For a complete reference on all available blocks and how they compose, read `PKGS.md` in the repository root. It documents every block in the inheritance chain from `base.sh` through `die/c/ix.sh` down to specific build system templates.
+</Tip>

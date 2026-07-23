@@ -1,0 +1,139 @@
+---
+title: "Fetching and Verifying Package Sources in IX"
+sidebarTitle: "Fetching Sources"
+description: "IX supports tarball downloads, git checkouts, and multiple fetch URLs. Every source is verified by SHA-256. Learn the three types of hash used in ix.sh recipes."
+---
+
+Every IX package recipe must declare its source and a checksum. IX supports tarball downloads, git repository checkouts, and multi-archive fetches. Checksums are mandatory — IX builds are hermetic, and every source is verified before unpacking. There are four distinct types of hash used across different package templates, and understanding the difference is essential when updating packages.
+
+## Tarball Fetch (C/C++ Packages)
+
+The most common fetch pattern. The `fetch` block contains a URL on the first line and its SHA-256 hex digest on the second line. The URL can reference the `version` block via `{{self.version().strip()}}`.
+
+```jinja2
+{% block fetch %}
+https://example.com/pkg-{{self.version().strip()}}.tar.gz
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+{% endblock %}
+```
+
+The digest is the SHA-256 of the downloaded archive file itself. Compute it with:
+
+```bash
+curl -fsSL <url> | sha256sum
+```
+
+The build system downloads the tarball, verifies the hash, and unpacks it into `${src}` before any build steps run.
+
+## Git Source
+
+For packages fetched directly from a git repository, use the `git_repo`, `git_branch`, and `git_sha` blocks instead of `fetch`.
+
+```jinja2
+{% block git_repo %}
+https://github.com/author/repo
+{% endblock %}
+
+{% block version %}
+1.2.3
+{% endblock %}
+
+{% block git_branch %}
+v{{self.version().strip()}}
+{% endblock %}
+
+{% block git_sha %}
+d17c1e9630ce2de65135f2772193d73195b2b3e263d8d070f500258feaef515c
+{% endblock %}
+```
+
+IX downloads `<git_repo>/archive/refs/tags/<git_branch>.tar.gz` and builds a vendored `.pzd` archive from it. The `git_sha` is the SHA-256 of that `.pzd` archive — **not** a git commit hash. See [The Three Hash Types](#the-three-hash-types) below for the distinction.
+
+## Multiple Fetch URLs
+
+The `fetch` block is parsed as a sequence of `(url, sha256)` pairs. To download multiple archives, list them one after another:
+
+```jinja2
+{% block fetch %}
+https://example.com/pkg-1.0.tar.gz
+aabbcc0000000000000000000000000000000000000000000000000000000000
+https://example.com/pkg-extra-data.tar.gz
+ddeeff0000000000000000000000000000000000000000000000000000000000
+{% endblock %}
+```
+
+Both archives are downloaded, verified, and available under `${src}` before the build steps run.
+
+## The Three Hash Types
+
+IX uses four distinct hash types across its package templates. Using the wrong type or confusing them will cause build failures.
+
+### 1. `fetch` block sha — C/C++ packages
+
+The SHA-256 of the **downloaded tarball file itself**. This is a straightforward checksum of the archive as downloaded from the URL.
+
+```jinja2
+{% block fetch %}
+https://example.com/foo-1.0.tar.gz
+46e072d5d45c9fd3d5b268523501bbea0ad016232b2d3f366a7aad0b1e7b3f71
+{% endblock %}
+```
+
+To compute: `curl -sL <url> | sha256sum`
+
+### 2. `go_sha` — Go packages
+
+The SHA-256 of the **internally built `.pzd` vendored archive** — a packed, deterministic tree with all Go modules resolved by `go mod vendor`. This is **not** the hash of the downloaded tarball.
+
+```jinja2
+{% block go_sha %}
+2a1f031b45960621119c571c4e82b2418567e7ebdd45514f6dded55e615312b3
+{% endblock %}
+```
+
+### 3. `cargo_sha` — Rust packages
+
+Same principle as `go_sha`. The SHA-256 of the **internally built `.pzd` vendored archive** with all Rust crate dependencies resolved by `cargo vendor`. Not the source tarball hash.
+
+```jinja2
+{% block cargo_sha %}
+4e58f7ed07ce1aff1a35e2749c42642b8e594196a9ff2ac7b8b8e1e14deddf8c
+{% endblock %}
+```
+
+### 4. `git_sha` — git-sourced packages
+
+The SHA-256 of the **internally built `.pzd` archive** created from a git checkout. Not a commit SHA, not a tag hash.
+
+```jinja2
+{% block git_sha %}
+d17c1e9630ce2de65135f2772193d73195b2b3e263d8d070f500258feaef515c
+{% endblock %}
+```
+
+All three `.pzd` hash types go through the same `aux/fetch` intermediate build step, which: downloads or clones the source, runs language-specific dependency resolution (`go mod vendor` / `cargo vendor` / `git submodule update`), packs everything into a deterministic `.pzd` archive via `stable_pack_v3`, then verifies the hash matches the declared sha.
+
+## Updating Tarball Packages
+
+For packages using the `fetch` block (C/C++ packages extending `die/c/*.sh`):
+
+1. Update the `version` block with the new version string.
+2. Compute the new hash: `curl -sL <new_url> | sha256sum`
+3. Replace the old hash in the `fetch` block with the new one.
+4. Run `./ix build <package>` and fix any build errors.
+
+## Updating Go, Rust, and Git Packages
+
+For packages using `go_sha`, `cargo_sha`, or `git_sha`, you cannot compute the hash in advance — it depends on the internally resolved dependency tree. The procedure is:
+
+1. Update the URL, version, or branch to the new value.
+2. Set the sha to all zeros: `0000000000000000000000000000000000000000000000000000000000000000`
+3. Update the compiler/tool version if needed (check `go.mod` for Go version, `rust-toolchain` for Rust).
+4. Run `./ix build <package>`. The build will fail with a checksum mismatch.
+5. Find the real SHA in the build log — look for the `sha256sum` output line showing the actual hash of the `.pzd` file.
+6. Replace the zeros with the real hash.
+7. Run `./ix build <package>` again — it should now succeed.
+
+<Warning>
+For Go, Rust, and git packages, always set the sha to all zeros before rebuilding after a version update. Without this step, the build system may reuse a cached `.pzd` with the old hash and skip re-resolving dependencies entirely.
+</Warning>

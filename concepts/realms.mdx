@@ -1,0 +1,151 @@
+---
+title: "Realms: Composable System Environments in IX"
+sidebarTitle: "Realms"
+description: "Realms are named environments in IX that compose store entries via symlinks. Learn how to create, switch, and manage realms using ix mut, ix let, and ix list."
+---
+
+A realm is itself a package in `/ix/store/` — but instead of containing compiled binaries or library archives, it contains symbolic links that point into other store entries. By collecting symlinks from many packages into a single directory tree, a realm presents a unified environment: one `bin/` directory with tools from dozens of packages, one `lib/` with their libraries, and so on. Anchor symlinks in `/ix/realm/` then point to the current (active) version of each realm, making it possible to switch the entire environment atomically by redirecting a single symlink.
+
+## Realm Structure
+
+A realm store entry looks like an ordinary package directory, but every file inside is a symlink into another store path. Here is an abbreviated listing of the `system` realm:
+
+```text
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/runit
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/runit-init
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/runsvchdir
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/utmpset
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/iwctl
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/iwd
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/sud_client
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/sud_server
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/doas
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/sudo
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/setcwd
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/mdevd
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/bin/mdevd-coldplug
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/meta.json
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/env
+/ix/store/0Q4rkMy8J8D1WTVn-rlm-system/touch
+```
+
+Each entry under `bin/` is a symlink pointing to the real binary in a package store path such as `/ix/store/<hash>-bin-runit/bin/runit`. The realm itself is immutable once built, just like any other store entry — it also has an `env` file and a `touch` file.
+
+## Anchor Links
+
+The `/ix/realm/` directory holds named symlinks that each point to the current store path for that realm:
+
+```text
+boot   -> /ix/store/RCa2L8DHZs71ArSI-rlm-boot
+kernel -> /ix/store/m3K7uWjZLVDshLNq-rlm-kernel
+pg     -> /ix/store/QC6vXQZNfLfhT4t1-rlm-pg
+system -> /ix/store/PIYCjYiLy1AIxVVl-rlm-system
+```
+
+Each name (`boot`, `kernel`, `system`, `pg`) is a realm name. Switching a realm means atomically replacing the symlink to point to a new store path. Because the old realm store entry is still present in `/ix/store/`, a failed update never leaves the system in a broken state — you can always switch the symlink back.
+
+## Using a Realm
+
+To use the contents of a realm, add it to your `PATH`:
+
+```bash
+export PATH="/ix/realm/boot/bin:${PATH}"
+```
+
+On a stal/IX system, only the `system` realm and the realm named after the current user are on `PATH` by default. Other realms (such as `gui` or `kernel`) must be added explicitly if you want to use their contents in a shell session.
+
+Realms compose cleanly. Because every binary in a realm is a symlink to a content-addressed store path, two realms can both reference the same underlying package version without duplication. Running `ix gc` only removes store entries that are unreachable from all anchor realms — any package that any realm symlinks to is kept alive.
+
+## The `mut` vs `let` Distinction
+
+<Tabs>
+  <Tab title="ix mut">
+    `ix mut` builds the new realm and **atomically switches the anchor symlink** in `/ix/realm/` to point to the new store path. The updated realm is immediately active.
+
+    ```sh
+    # Install Sway in the gui realm and switch immediately
+    ix mut gui bin/sway
+    ```
+  </Tab>
+  <Tab title="ix let">
+    `ix let` performs exactly the same build as `ix mut` but **does not update the anchor symlink**. The new realm is built and placed in `/ix/store/`, but the current active realm is unchanged. This lets you inspect or test the new realm before committing to it.
+
+    ```sh
+    # Build the new gui realm but don't switch yet
+    ix let gui bin/sway
+    ```
+  </Tab>
+  <Tab title="ix build">
+    `ix build` is `ix let` over a temporary, ephemeral realm. It is useful for seeing how a set of packages (or a single package) would look in a freshly created realm, without inheriting flags or other packages from an existing realm.
+
+    ```sh
+    # Build bin/bzip2 in isolation to inspect the output
+    ix build bin/bzip2
+    ```
+  </Tab>
+</Tabs>
+
+## Default Realm
+
+If no realm name is given to `ix mut` or `ix let`, IX defaults to the realm named after the current Unix username:
+
+```sh
+# These are equivalent when run as user "alice"
+ix mut bin/git
+ix mut alice bin/git
+```
+
+This makes personal package management seamless: each user has their own realm that does not affect the shared `system` realm or other users' realms.
+
+## System Realm vs User Realm
+
+<CardGroup cols={2}>
+  <Card title="system realm" icon="server">
+    The `system` realm is the shared, system-wide environment. It typically contains init tools (`runit`), network management (`iwd`), privilege escalation (`doas`, `sudo`), and other services that all users depend on. Modifying the `system` realm usually requires sudo or root.
+
+    ```sh
+    ix mut system bin/iwd
+    ```
+  </Card>
+  <Card title="user realm" icon="user">
+    Each user has a personal realm named after their username. Packages installed here are only visible to that user (unless they add the realm to a shared `PATH`). No root access is required to modify a personal realm if the user has sudo configured.
+
+    ```sh
+    # Install git in the current user's personal realm
+    ix mut bin/git
+    ```
+  </Card>
+</CardGroup>
+
+## Realm Management Commands
+
+| Command | Effect |
+|---------|--------|
+| `ix mut [realm] [pkg...]` | Build and switch the realm anchor |
+| `ix let [realm] [pkg...]` | Build but do not switch the anchor |
+| `ix build [pkg...]` | Build in an ephemeral realm; no anchor |
+| `ix list [realm...]` | View all realms or installed packages (with flags) in specified realms |
+| `ix purge realm...` | Remove the anchor symlinks for the specified realms |
+| `ix run [pkg...] -- cmd` | Build a temporary realm and run a command inside it |
+
+## Realm Flags
+
+Flags can be applied at the realm level, affecting all packages in the realm, or at the per-package level:
+
+```sh
+# All packages in gui use AMD GPU
+ix mut gui --mesa_driver=radv
+
+# Only sway uses AMD GPU
+ix mut gui bin/sway --mesa_driver=radv
+
+# Remove a flag (set to default) with a dash value
+ix mut system --mesa_driver=-
+```
+
+Removing a package from a realm uses a `-` prefix on the package name:
+
+```sh
+# Remove sway, add wayfire
+ix mut gui -bin/sway bin/wayfire
+```

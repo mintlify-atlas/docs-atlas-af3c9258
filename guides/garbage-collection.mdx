@@ -1,0 +1,64 @@
+---
+title: "Garbage Collecting Unused Store Entries with ix gc"
+sidebarTitle: "Garbage Collection"
+description: "Use ix gc to find and remove unused packages from /ix/store by moving them to /ix/trash. Control which prefixes are collected and understand the reachability algorithm."
+---
+
+Over time the IX store (`/ix/store/`) accumulates old package versions and build artifacts that are no longer referenced by any active realm. Every time you run `ix mut` or `ix build`, new store entries may be created while old ones are left behind — the store is immutable and never overwrites existing content. `ix gc` identifies all entries that are unreachable from the current set of anchor realms and moves them to `/ix/trash/` for asynchronous removal, freeing disk space without risking damage to packages still in use.
+
+## Running GC
+
+Invoke `ix gc` with no arguments to run a full garbage collection pass using the default set of package prefixes:
+
+```bash
+ix gc
+```
+
+IX walks all anchor symlinks in `/ix/realm/`, collects every store path reachable from them, and then compares that set against all entries in `/ix/store/`. Any entry that is not reachable is a candidate for collection. Candidates whose name matches one of the active prefixes are moved to `/ix/trash/`; the rest are left in place. As each entry is processed, IX prints either `purge <path>` or `stay <path>` to standard output.
+
+## Reachability
+
+A package is considered **in use** if there is a path from any anchor realm symlink in `/ix/realm/` to it. Concretely, each anchor symlink points to a realm store entry (an `rlm-*` package), which in turn contains symbolic links that point to the `bin/*`, `lib/*`, and other packages installed in that realm. All entries reachable through this chain — the realm itself and every package it links — are considered live.
+
+Any store entry that is not reachable from any anchor is an **orphan** and is a candidate for collection. Orphans arise naturally when:
+
+- A realm is updated with `ix mut` and the old realm store entry is replaced by a new one.
+- A package is removed from a realm with `ix mut -pkg/name`.
+- A realm anchor is removed with `ix purge`.
+- A build with `ix build` left intermediate entries that were never anchored.
+
+<Note>
+`ix gc` only removes entries that are not reachable from anchor realms. Any package referenced — directly or transitively — by a live realm anchor is guaranteed to be left untouched.
+</Note>
+
+## Prefix Filtering
+
+GC accepts an optional list of package-type prefixes to control which kinds of entries are eligible for collection. Only entries whose store path contains one of the specified prefix strings will be moved to trash; everything else receives a `stay` verdict.
+
+```bash
+# Collect only library and binary orphans
+ix gc lib bin
+
+# Default: collects lib, bin, lnk, aux, and rlm orphans
+ix gc
+```
+
+The default prefixes when none are specified are: **`lib`**, **`bin`**, **`lnk`**, **`aux`**, and **`rlm`**. These cover the most common package types that accumulate during normal use.
+
+| Prefix | Package type |
+|--------|-------------|
+| `lib`  | Static libraries |
+| `bin`  | Executable binaries |
+| `lnk`  | Link packages |
+| `aux`  | Runtime data (fonts, terminfo, etc.) |
+| `rlm`  | Realm packages |
+
+Passing explicit prefixes is useful when you want a surgical collection — for example, reclaiming space from old library builds while leaving other types alone for inspection.
+
+## The Trash Directory
+
+Entries that `ix gc` collects are **moved** (not immediately deleted) to `/ix/trash/`. The trash directory is separate from the store, so the move is fast — it is a rename within the same filesystem. Actual deletion from disk is performed asynchronously outside of the `ix gc` process itself, keeping the GC pass quick and avoiding long blocking operations on large stores.
+
+<Warning>
+After running `ix purge` to remove a realm anchor, the realm and all of its exclusively-referenced packages become orphans — but they remain on disk consuming space until you run `ix gc`. Always follow `ix purge` with `ix gc` to actually reclaim the storage.
+</Warning>

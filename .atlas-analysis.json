@@ -1,0 +1,93 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "IX Package Manager",
+  "projectDescription": "A source-based, content-addressed package manager and build system for the stal/IX Linux distribution, emphasizing hermetic builds, static linking, and deterministic outputs.",
+  "theme": "aspen",
+  "primaryColor": "#43a243",
+  "lightColor": "#e08681",
+  "darkColor": "#a4d1a4",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/store",
+              "concepts/realms",
+              "concepts/packages",
+              "concepts/templates"
+            ]
+          },
+          {
+            "group": "Using IX",
+            "pages": [
+              "guides/managing-realms",
+              "guides/building-packages",
+              "guides/cross-compilation",
+              "guides/garbage-collection"
+            ]
+          },
+          {
+            "group": "Package Development",
+            "pages": [
+              "packaging/anatomy",
+              "packaging/templates",
+              "packaging/dependencies",
+              "packaging/fetching-sources",
+              "packaging/build-steps",
+              "packaging/flags",
+              "packaging/shims"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/cli",
+              "reference/environment-variables",
+              "reference/package-naming",
+              "reference/build-tools"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Content-addressed store at /ix/store/<hash>-<pkg> with immutable build outputs",
+    "Source-first package builds with Jinja2 template recipes",
+    "Hermetic, isolated builds with no host environment leakage",
+    "Aggressive static linking for reproducibility and minimal runtime dependencies",
+    "Cross-target compilation support (Linux, FreeBSD, etc.)",
+    "Realms: named, composable system environments assembled from store entries",
+    "Non-Turing-complete(ish) package definitions for deterministic builds",
+    "Supports C/C++, Rust/Cargo, Go modules, and Python packages",
+    "Bootstrap from near-zero: only /bin/sh and a single C file required"
+  ],
+  "publicApiSurface": [
+    "ix mut [realm] [package...] — modify realms and install/remove packages",
+    "ix build [package...] — build packages in an ephemeral realm",
+    "ix let [realm] [package...] — like mut but does not switch the anchor link",
+    "ix run [package...] -- command — build a realm and run a command in it",
+    "ix gc [prefix...] — garbage-collect unused store entries",
+    "ix list [realm...] — list realms or installed packages",
+    "ix purge realm... — remove anchor links for realms",
+    "ix dep package... — print ix.sh files for packages",
+    "ix tool [tool] — access auxiliary tools (listall, mkfs, pypi, reconf, regen, upver)",
+    "IX_ROOT — path to IX store (default: /ix)",
+    "IX_PATH — colon-separated paths to package recipe directories",
+    "IX_EXEC_KIND — operation mode: system, local, or fake",
+    "IX_THREADS — number of build threads",
+    "IX_VERBOSE — show package dependencies during build",
+    "IX_DUMP_GRAPH — print build graph as JSON and exit"
+  ]
+}

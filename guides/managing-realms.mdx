@@ -1,0 +1,101 @@
+---
+title: "Managing Realms with ix mut, ix let, and ix list"
+sidebarTitle: "Managing Realms"
+description: "Install, remove, and update packages in IX realms using mut, let, list, and purge. Learn realm flags, package flags, and the difference between mut and let."
+---
+
+Realms are named environments in the IX store — each realm is itself a package (stored under `/ix/store/`) containing symbolic links to all the packages installed into it. The `ix mut` command is the primary way to add packages to a realm, remove them, apply per-package or per-realm flags, and rebuild a realm with the latest available versions of its packages. An anchor symlink in `/ix/realm/` always points to the current store entry for each realm, making it easy to put a realm on your `PATH`.
+
+## Installing Packages
+
+Pass a realm name followed by one or more package identifiers to `ix mut`. Package names use the `namespace/name` format (e.g. `bin/sway`, `bin/epiphany`).
+
+```bash
+# Install sway in the gui realm
+ix mut gui bin/sway
+
+# Install to your personal realm (defaults to your username)
+ix mut bin/zstd
+
+# Add a browser to the gui realm
+ix mut gui bin/epiphany
+```
+
+<Note>
+When no realm name is given, `ix mut` defaults to the realm whose name matches your current username (detected via `getpass.getuser()`).
+</Note>
+
+## Removing Packages
+
+Prefix a package name with `-` to remove it from a realm. You can combine removals and additions in a single command — IX processes them atomically as a single realm mutation.
+
+```bash
+# Remove sway and install wayfire in one step
+ix mut gui -bin/sway bin/wayfire
+```
+
+You can also explicitly mark a package for addition with `+`, though that is the default when no prefix is given.
+
+## Per-Realm and Per-Package Flags
+
+Flags are passed with the `--name=value` syntax and can be scoped to an individual package or to the entire realm. When a flag appears immediately after a package name it applies only to that package; when it appears after the realm name (before any package) it applies to every package in the realm.
+
+```bash
+# Set mesa_driver for a specific package only
+ix mut gui bin/sway --mesa_driver=radv
+
+# Set mesa_driver for ALL packages in the gui realm
+ix mut gui --mesa_driver=radv
+
+# Remove a flag and reset it to the default (use - as the value)
+ix mut system --mesa_driver=-
+```
+
+<Tip>
+Realm-level flags are a convenient way to enforce a consistent hardware driver or feature variant across an entire graphics or desktop realm without repeating the flag on every individual package.
+</Tip>
+
+## Updating a Realm
+
+Calling `ix mut` with only a realm name and no package list triggers a rebuild of every package already installed in that realm. This is the standard way to pick up upstream changes after pulling a newer version of the IX repository.
+
+```bash
+ix mut gui
+```
+
+## Preview Before Switching: `ix let`
+
+`ix let` accepts exactly the same arguments as `ix mut` but does **not** update the anchor symlink in `/ix/realm/` when it finishes. The new realm store entry is built and left in place, letting you inspect its contents before committing to it.
+
+```bash
+ix let gui bin/new-wm
+```
+
+This is useful for checking that a large dependency graph resolves correctly, or for staging a change that a second operator will later activate with `ix mut`.
+
+## Listing Realms and Packages
+
+`ix list` with no arguments prints the names of all realms that have anchor links in `/ix/realm/`. Passing one or more realm names prints the packages (with their flags) installed in each of those realms.
+
+```bash
+# List all known realms
+ix list
+
+# List packages installed in the gui realm
+ix list gui
+
+# List packages installed in the system realm
+ix list system
+```
+
+## Removing a Realm: `ix purge`
+
+`ix purge` removes the anchor symlink for one or more realms from `/ix/realm/`. Once the anchor is gone the realm is no longer considered "in use" by the garbage collector.
+
+```bash
+ix purge gui
+```
+
+<Note>
+`ix purge` only removes the anchor symlink — the underlying store entry and all its referenced packages remain on disk until you run `ix gc`. See the [Garbage Collection guide](/guides/garbage-collection) for details.
+</Note>

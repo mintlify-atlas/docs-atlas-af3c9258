@@ -1,0 +1,120 @@
+---
+title: "Shim Packages for Portability Without Patching Sources"
+sidebarTitle: "Shims"
+description: "Use lib/shim/* packages to solve common portability issues declaratively in IX. Avoid sed-patching Makefiles with fake libraries, header redirects, and pkg-config stubs."
+---
+
+Instead of patching Makefiles or source files when a library name or header path doesn't match what IX provides, IX offers `lib/shim/*` packages that solve these problems declaratively. Shims belong in `bld_libs` — not `lib_deps` — so the workaround stays local to the package being built and doesn't propagate to downstream consumers.
+
+## Available Shims
+
+| Problem | Shim | Instead of |
+|---|---|---|
+| `-lfoo` fails; symbols live in another lib | `lib/shim/fake(lib_name=foo)` | `sed` removing `-lfoo` from Makefile |
+| `#include <old/path.h>` uses wrong path | `lib/shim/redir(from=old/path.h,to=new.h)` | `sed` on source files |
+| `pkg-config foo` fails | `lib/shim/fake/pkg(pkg_name=foo,pkg_ver=1)` | Patching configure scripts |
+| Need `-lfoo` added to `LDFLAGS` | `lib/shim/dll(dll_name=foo)` | `export LDFLAGS="-lfoo $LDFLAGS"` |
+| Build needs a tool but its output is unused | `bld/fake/er(tool_name=foo)` in `bld_tool` | Installing heavy toolchains |
+
+## Using Shims in `bld_libs`
+
+Shims are listed in `bld_libs` alongside real libraries:
+
+```jinja2
+{% block bld_libs %}
+lib/c
+lib/ncurses
+lib/shim/fake(lib_name=ncursesw)
+lib/shim/fake/pkg(pkg_name=libudev,pkg_ver=251)
+lib/shim/redir(from=ncursesw/ncurses.h,to=ncurses.h)
+{% endblock %}
+```
+
+### `lib/shim/fake` — Empty Stub Library
+
+Creates an empty `lib<name>.a` so that `-l<name>` at link time does not fail. Use this when the real symbols come from another library under a different name — for example, `lib/ncurses` provides ncursesw symbols but installs as `libncurses.a`, not `libncursesw.a`.
+
+```jinja2
+lib/shim/fake(lib_name=ncursesw)
+lib/shim/fake(lib_name=stdc++fs)
+```
+
+### `lib/shim/redir` — Header Redirect
+
+Creates a header at path `from` that `#include`s `to`. Use this when upstream source code includes a header under a path that differs from where IX installs it. This is cleaner than `sed` on source files because it covers all source files and leaves the source tree unmodified.
+
+```jinja2
+lib/shim/redir(from=ncursesw/ncurses.h,to=ncurses.h)
+lib/shim/redir(from=sys/sysctl.h,to=linux/sysctl.h)
+```
+
+### `lib/shim/fake/pkg` — Fake pkg-config File
+
+Generates a `.pc` file so that `pkg-config --cflags/--libs <name>` succeeds without actually providing the library. Use this when a configure or cmake check for a package must pass but the real library is provided through another mechanism.
+
+```jinja2
+lib/shim/fake/pkg(pkg_name=glew,pkg_ver=1.0.0)
+lib/shim/fake/pkg(pkg_name=dri,pkg_ver=100500,pkg_extra=dridriverdir: /nowhere)
+```
+
+### `lib/shim/dll` — Inject `-l` Flag
+
+Adds `-l<name>` to `LDFLAGS` via environment. Use this when you need to force-link a library that the build system doesn't know about.
+
+```jinja2
+lib/shim/dll(dll_name=m)
+```
+
+## `bld/fake/er` for Suppressing Doc Generators
+
+When a build requires a documentation tool but the generated output isn't needed, use `bld/fake/er` in `bld_tool` to create a no-op stub:
+
+```jinja2
+{% block bld_tool %}
+bld/fake/er(tool_name=asciidoctor)
+bld/fake/er(tool_name=sphinx-build)
+bld/fake/er(tool_name=rst2man)
+bld/fake/er(tool_name=xsltproc)
+{% endblock %}
+```
+
+`bld/fake/er` is smarter than a plain empty stub: it detects `-o`/`--output` arguments and creates empty output files at the specified paths. This ensures that `install` targets that copy generated files don't fail on missing files.
+
+Use `bld/fake/er` by default. Use `bld/fake(tool_name=X)` (plain empty shell script) only when the simpler stub works and no output file handling is needed.
+
+## `bld/fakegit`
+
+For packages that call `git describe` or `git rev-parse` during their build to embed version strings, use `bld/fakegit` in `bld_tool`:
+
+```jinja2
+{% block bld_tool %}
+bld/fakegit
+{% endblock %}
+```
+
+Then provide the actual version string through a `patch` block by writing it to wherever the build expects it:
+
+```jinja2
+{% block patch %}
+{{super()}}
+echo "{{self.version().strip()}}" > VERSION
+{% endblock %}
+```
+
+`bld/fakegit` is equivalent to `bld/fake(tool_name=git)` — a no-op `git` binary that exits successfully. The build system no longer needs a real `.git` directory.
+
+## When NOT to Use Shims
+
+Shims are for standard portability gaps — missing library name aliases, path mismatches, absent pkg-config files. They are not substitutes for real dependencies:
+
+- If a package genuinely requires a library, add the real library to `bld_libs`.
+- Before creating a new shim, search `pkgs/` to see if the needed package already exists: `find pkgs -path '*foo*' -name ix.sh`
+- If the build needs a tool that exists in the IX package tree, use it — only reach for `bld/fake/er` when the tool genuinely doesn't exist or its output isn't needed.
+
+<Tip>
+Rule of thumb: if you're about to `sed` a Makefile to remove a `-lfoo` flag or redirect a header path, check if a shim can solve it declaratively instead. `sed` in `patch` should be the last resort.
+</Tip>
+
+<Note>
+Shims should go in `bld_libs`, not `lib_deps`, so they don't propagate to downstream packages. Only put shims in `lib_deps` when downstream consumers genuinely need the same workaround — this is rare.
+</Note>

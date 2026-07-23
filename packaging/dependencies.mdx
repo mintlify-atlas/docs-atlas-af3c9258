@@ -1,0 +1,123 @@
+---
+title: "Declaring Dependencies in IX Package Recipes"
+sidebarTitle: "Dependencies"
+description: "Use bld_libs, bld_tool, lib_deps, run_deps, and other dependency blocks to declare what an IX package needs at build time and runtime."
+---
+
+IX package dependencies are declared as whitespace-separated lists in Jinja2 blocks. The build infrastructure converts them to JSON arrays automatically and wires up `CPPFLAGS`, `LDFLAGS`, and `PATH` — you never need to hardcode library paths or binary locations. Each block has a specific role: some affect only the current package's build, others propagate to downstream consumers.
+
+## Dependency Blocks Overview
+
+| Block | Role |
+|---|---|
+| `bld_libs` | Static libraries linked into the artifact (target architecture) |
+| `bld_tool` | Executables on `PATH` during the build (host architecture) |
+| `lib_deps` | Libraries exported to packages that depend on this one |
+| `run_deps` | Runtime packages (binaries, data) needed when this package runs |
+| `run_data` | Runtime data packages (`aux/`) |
+| `bld_data` | Build-time data packages (`aux/`, cargo index, go module cache) |
+| `host_libs` | Libraries for the host machine (cross-compilation only) |
+| `ind_deps` | Induced / implicit dependencies |
+
+## `bld_libs` — Linking Libraries
+
+`bld_libs` lists every static library the package links against. Each library in this block has its headers and `.a` files exposed via `CPPFLAGS`/`LDFLAGS` automatically through the `env_auto.sh` mechanism — no manual flag construction needed.
+
+```jinja2
+{% block bld_libs %}
+lib/c
+lib/c++
+lib/z
+lib/openssl
+lib/curl
+lib/expat
+{% endblock %}
+```
+
+`lib/c` is required for virtually every C package. `lib/c++` is required for C++ packages. Omitting them produces undefined reference errors at link time.
+
+Shim packages (`lib/shim/*`) also go in `bld_libs`. See [Shims](/packaging/shims) for details.
+
+## `bld_tool` — Host Executables
+
+`bld_tool` lists executables that must be on `PATH` during the build. These are host-architecture packages from the `bld/` tree.
+
+```jinja2
+{% block bld_tool %}
+bld/cmake
+bld/pkg/config
+bld/ninja
+bld/perl
+{% endblock %}
+```
+
+Common build tools:
+
+| Package | Provides |
+|---|---|
+| `bld/cmake` | `cmake` |
+| `bld/ninja` | `ninja` |
+| `bld/pkg/config` | `pkg-config` |
+| `bld/make` | `make` (usually pulled in automatically by `make.sh`) |
+| `bld/perl` | `perl` |
+| `bld/python` | `python3` |
+| `bld/bison` | `bison` + `flex` |
+| `bld/m4` | `m4` |
+| `bld/gettext` | `msgfmt`, `xgettext` |
+| `bld/wayland` | `wayland-scanner` |
+| `bld/glib` | `glib-compile-schemas`, `gdbus-codegen`, `glib-mkenums` |
+
+Always use `bld/` packages for build-time tools, not `bin/` packages. `bin/` packages are target binaries and may trigger a full source build for the wrong architecture.
+
+## `lib_deps` vs `bld_libs`
+
+These two blocks solve different problems:
+
+- **`bld_libs`** — libraries needed to build _this_ package. Headers and `.a` files are available during this package's build only.
+- **`lib_deps`** — libraries that this package _re-exports_ to its consumers. When a downstream package adds `lib/mypkg` to its `bld_libs`, it automatically also gets everything in `lib/mypkg`'s `lib_deps`.
+
+```jinja2
+{% block lib_deps %}
+lib/z
+lib/openssl
+{% endblock %}
+```
+
+Use `lib_deps` only when downstream consumers genuinely need the same library — typically when this package's public headers include headers from the dependency, or when its `.pc` file lists the dependency in `Requires`.
+
+## `run_deps` — Runtime Packages
+
+`run_deps` lists packages that must be present when this package executes. They are composed into the system realm when this package is installed.
+
+```jinja2
+{% block run_deps %}
+bin/openssh/client
+bin/git/cred
+lib/ncurses
+{% endblock %}
+```
+
+## Parameterized Dependencies
+
+Any dependency can be parametrized with flags in parentheses. This selects a specific variant or version of a package:
+
+```jinja2
+{% block bld_libs %}
+lib/c
+lib/curl(libcurl_ver=http1)
+{% endblock %}
+
+{% block run_deps %}
+bin/python(python_ver=12)
+{% endblock %}
+```
+
+For libraries with version variants (Lua, Python, etc.), use the parameterized `/unwrap` pattern rather than hardcoding a specific version path:
+
+```jinja2
+bin/foo/unwrap(lua_ver=puc/5/4)
+```
+
+<Note>
+Shims (`lib/shim/*`) should go in `bld_libs`, not `lib_deps`, so they don't propagate to downstream packages. Only put shims in `lib_deps` when downstream consumers genuinely need the same workaround. See the [Shims](/packaging/shims) page for details.
+</Note>

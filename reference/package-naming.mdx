@@ -1,0 +1,122 @@
+---
+title: "IX Package Naming Conventions and Path Canon"
+sidebarTitle: "Package Naming"
+description: "IX derives package names from directory paths under pkgs/. Learn the canonical naming rules: compound names, hyphens, versions, variants, and special suffixes."
+---
+
+In IX, a package's name **is** its path under `pkgs/`. There is no separate registry or manifest — the directory structure is the package identifier. The naming conventions are strict and non-trivial: compound names are split by word boundaries, hyphens become path separators, version numbers become path components, and variants are expressed as nested subdirectories. Understanding these rules is essential for both finding existing packages and naming new ones correctly.
+
+---
+
+## The Fundamental Rule
+
+The package path equals the package name. The `ix.sh` recipe file at a given directory path defines the package whose name is that path, relative to `pkgs/`:
+
+| Recipe path | Package name |
+|---|---|
+| `pkgs/bin/neo/vim/ix.sh` | `bin/neo/vim` |
+| `pkgs/lib/open/ssl/ix.sh` | `lib/openssl` |
+| `pkgs/bld/cmake/ix.sh` | `bld/cmake` |
+
+The path you use in `ix mut`, `ix build`, and `ix dep` must match the directory path exactly.
+
+---
+
+## Naming Rules
+
+<Steps>
+  <Step title="Compound names split by word boundaries">
+    Multi-word project names are decomposed into their component words, each becoming a path segment. Word boundaries are identified by the maintainer based on the natural etymology of the name.
+
+    | Upstream name | IX package name |
+    |---|---|
+    | `neovim` | `bin/neo/vim` |
+    | `autoconf` | `bin/auto/conf` |
+    | `ghostscript` | `bin/ghost/script` |
+    | `firejail` | `bin/fire/jail` |
+    | `netcat` | `bin/net/cat` |
+    | `nettools` | `bin/net/tools` |
+  </Step>
+  <Step title="Hyphens and underscores become /">
+    Any hyphen (`-`) or underscore (`_`) in the upstream project name is replaced with a path separator:
+
+    `terminal-use` → `bin/terminal/use`
+  </Step>
+  <Step title="Well-known single-word names stay as-is">
+    Established project names that are commonly recognized as a single word are kept intact without splitting:
+
+    `wireshark`, `openssh`, `openssl`, `darktable`, `coreutils`, `fontconfig`, `wirez`
+  </Step>
+  <Step title="Version numbers become path components">
+    When multiple versions of a package must coexist, the version number is appended as additional path segments. Dots in version numbers also become path separators:
+
+    | Package + version | IX package name |
+    |---|---|
+    | `autoconf 2.72` | `bin/auto/conf/2/72` |
+    | `bash 5` | `bin/bash/5` |
+  </Step>
+  <Step title="Variants and sub-packages are nested">
+    When a package has meaningfully different build configurations (e.g. different TLS backends) or sub-components, they are expressed as children of the base package path:
+
+    `bin/curl/openssl`, `bin/curl/gnutls`
+  </Step>
+</Steps>
+
+---
+
+## Special Suffixes
+
+Certain suffix path components have reserved meanings across all namespaces:
+
+| Suffix | Meaning |
+|---|---|
+| `unwrap` | Full package with all runtime dependencies included. The base package (without `unwrap`) is the minimal or library-only version; `unwrap` is what you install when you want the complete, runnable program. |
+| `runit` | Service and init scripts for the runit supervisor. Applied to packages that ship a supervised service definition. |
+| `t` | Intermediate template package. Not intended for direct installation; acts as a shared base for other packages. |
+
+**Example:** `bin/neo/vim` is the minimal neovim build; `bin/neo/vim/unwrap` is neovim bundled with all its runtime dependencies.
+
+---
+
+## Top-Level Namespaces
+
+Every package lives under one of these top-level directories:
+
+| Namespace | Contents |
+|---|---|
+| `bin/` | Executable binaries built for the target platform |
+| `lib/` | Libraries built for the target platform |
+| `bld/` | Build-time host tools: compilers, code generators, build systems. Built for the host, not the target. Only used during the build of other packages; never installed at runtime. |
+| `aux/` | Runtime data: fonts, terminfo databases, vendored source archives |
+| `etc/` | Configuration files and init scripts |
+| `set/` | Meta-package sets that pull in a collection of related packages |
+
+<Note>
+  Everything outside `bld/` must be able to cross-compile for the target platform. Packages in `bld/` only need to run on the build host.
+</Note>
+
+---
+
+## Examples
+
+A consolidated reference of real package name conversions:
+
+| Upstream name | IX package name |
+|---|---|
+| neovim | `bin/neo/vim` |
+| autoconf | `bin/auto/conf` |
+| autoconf 2.72 | `bin/auto/conf/2/72` |
+| ghostscript | `bin/ghost/script` |
+| firejail | `bin/fire/jail` |
+| netcat | `bin/net/cat` |
+| nettools | `bin/net/tools` |
+| terminal-use | `bin/terminal/use` |
+| openssh | `bin/openssh` |
+| wireshark | `bin/wireshark` |
+| curl (OpenSSL variant) | `bin/curl/openssl` |
+| curl (GnuTLS variant) | `bin/curl/gnutls` |
+| neovim (full, with runtime deps) | `bin/neo/vim/unwrap` |
+
+<Note>
+  The canonical form of a name is determined by the maintainer who first adds the package. When adding a new package, search `pkgs/` for packages with similar upstream names and follow the established pattern for that word root. When in doubt, prefer splitting compound words rather than keeping them joined.
+</Note>

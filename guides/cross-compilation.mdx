@@ -1,0 +1,73 @@
+---
+title: "Cross-Compiling Packages with IX for Other Targets"
+sidebarTitle: "Cross-Compilation"
+description: "Build IX packages targeting non-host OS and ABI combinations using the --target flag. Covers available targets and the bld/ vs bin/ distinction for host tools."
+---
+
+IX supports cross-compilation — building packages whose output targets a different operating system or CPU architecture from the machine running the build. The entire template system is designed with this in mind: every package in `bin/` and `lib/` must be able to cross-compile for any supported target platform, while packages in `bld/` are always built for the host and are never cross-compiled. The `--target` flag selects the target triple at build time.
+
+## Basic Cross-Build
+
+Pass `--target=<os>-<arch>` to `ix build` to request a cross-compiled output. The target identifier is a dash-separated combination of an OS name and an architecture name.
+
+```bash
+# Build bin/b64 for FreeBSD on x86_64
+./ix build bin/b64 --target=freebsd-x86_64
+```
+
+IX automatically selects the correct cross-toolchain for the requested target and ensures that no host-specific paths or libraries leak into the build environment.
+
+## How Cross-Compilation Works in IX
+
+IX separates the build into two distinct roles — the **host** (the machine performing the build) and the **target** (the machine that will run the resulting binaries). The package namespace encodes which role a package serves:
+
+- `bld/` packages are always built for the **host**. They include compilers, code generators, build systems (cmake, ninja, meson), and other tools that must run during the build process itself.
+- `bin/` packages are built for the **target**. These are the end-user binaries that will run on the target OS and architecture.
+- `lib/` packages are also built for the **target**. Static libraries and headers consumed by target-side packages.
+- Everything outside `bld/` must be able to cross-compile for the target platform without assuming `host == target`.
+
+The toolchain used to compile target packages is provided entirely by the package set — no compiler from the host's ambient environment is used. This prevents implicit host environment leakage into cross-compiled artifacts.
+
+## The `bld/` vs `bin/` Distinction
+
+The namespace of a package determines where it runs, not just where it lives in the tree:
+
+| Namespace | Built for   | Purpose                                          |
+|-----------|-------------|--------------------------------------------------|
+| `bld/`    | Build host  | Compilers, code generators, build-time tools     |
+| `bin/`    | Target      | End-user executables                             |
+| `lib/`    | Target      | Static libraries and headers                     |
+
+<Tip>
+When writing a new package that requires a build-time code generator or compiler, always declare it in `bld_tool` (or `bld_libs` for libraries needed only during compilation) — not in `run_deps`. This ensures that cross-builds fetch the tool for the host architecture rather than trying to run a target binary on the host.
+</Tip>
+
+## Template Variables for Cross-Builds
+
+Inside `ix.sh` Jinja2 templates, two architecture objects are available: `host` and `target`. They expose identical fields but describe the respective machines. Key fields include:
+
+| Variable | Example value | Description |
+|---|---|---|
+| `{{target.rust}}` | `x86_64-unknown-freebsd` | Rust target triple |
+| `{{target.go_arch}}` | `amd64` | Go `GOARCH` for the target |
+| `{{host.go_arch}}` | `amd64` | Go `GOARCH` for the host |
+| `{{target.gnu.three}}` | `x86_64-unknown-freebsd` | GNU triplet for the target |
+| `{{target.os}}` | `freebsd` | OS name for the target |
+| `{{target.arch}}` | `x86_64` | Architecture name for the target |
+| `{{target.cmake_system_name}}` | `FreeBSD` | CMake `CMAKE_SYSTEM_NAME` |
+| `{{target.uname_s}}` | `FreeBSD` | `uname -s` equivalent |
+| `{{target.uname_m}}` | `x86_64` | `uname -m` equivalent |
+
+Templates can also branch on whether the build is native or cross:
+
+```jinja2
+{% if native %}
+{# host == target: no cross-compilation #}
+{% else %}
+{# cross-compiling: host != target #}
+{% endif %}
+```
+
+<Note>
+Cross-compilation support is a work in progress but is actively used in the IX project. Some packages may require additional template work to support all target combinations. When writing packages, consult `PKGS.md` §17 for the full reference on cross-compilation template patterns.
+</Note>

@@ -1,0 +1,99 @@
+---
+title: "Building Packages with ix build and ix run"
+sidebarTitle: "Building Packages"
+description: "Use ix build to compile packages into ephemeral realms and ix run to execute commands inside freshly built realms. Includes verbose and debug options."
+---
+
+`ix build` creates an ephemeral (temporary) realm containing the packages you specify. It is equivalent to running `ix let` over a fresh realm with no prior package list — it compiles everything from scratch without touching any existing realm. This makes it the right tool for verifying that a package or a set of packages builds correctly, for testing a new recipe, or for inspecting what a clean composition would look like before promoting it to a permanent realm.
+
+## Building a Single Package
+
+Pass the package identifier directly to `ix build`. The `./ix` prefix is used here because IX is typically invoked from the repository root rather than from a system-wide installation.
+
+```bash
+./ix build bin/b64
+```
+
+IX resolves the full dependency graph, compiles every missing input, and assembles the result in a temporary store entry. No anchor link is created, and no existing realm is modified.
+
+## Building with Flags
+
+Flags follow the same `--name=value` syntax used by `ix mut`. Pass them after the package name to parametrize the build.
+
+```bash
+./ix build bin/sway --mesa_driver=radv
+```
+
+Multiple packages and flags can be combined in a single invocation just as with `ix mut`.
+
+## Running a Command in a Built Realm: `ix run`
+
+`ix run` prepares a new ephemeral realm containing the requested packages and then executes an arbitrary command inside it. Use the `--` separator to mark the boundary between the package/flag list and the command to run.
+
+```bash
+# Run zstd from the store without installing it permanently
+./ix run bin/zstd -- zstd --help
+```
+
+Everything before `--` is interpreted as packages or flags; everything after `--` is the command line passed to the shell. This lets you experiment with a binary or run a one-off tool without touching any realm.
+
+<Note>
+When `--` is omitted, `ix run` attempts to resolve the first argument as a binary name in the IX package database and uses that package automatically.
+</Note>
+
+## Verbose and Debug Output
+
+Two mechanisms are available for more detailed build output.
+
+The `IX_VERBOSE` environment variable causes IX to print package dependencies as they are resolved during the build:
+
+```bash
+# Show package dependencies during the build
+IX_VERBOSE=1 ./ix build bin/curl
+```
+
+When a build fails, re-run it with `--setx --verbose` to enable a detailed shell trace of every step executed by the build script:
+
+```bash
+./ix build bin/curl --setx --verbose
+```
+
+<Tip>
+Combine both: `IX_VERBOSE=1 ./ix build bin/curl --setx --verbose >/tmp/build.log 2>&1` to capture a complete trace in a log file for offline analysis.
+</Tip>
+
+## Viewing the Build Graph
+
+Setting `IX_DUMP_GRAPH=1` causes IX to print the full build graph as JSON and exit without actually building anything. This is useful for understanding the dependency structure of a package before committing to a potentially long build.
+
+```bash
+IX_DUMP_GRAPH=1 ./ix build bin/curl
+```
+
+The output is a JSON object whose keys are node identifiers and whose values describe each package node, its inputs, and its build commands.
+
+## Finding Dependencies: `ix dep`
+
+`ix dep` prints the list of `ix.sh` recipe files involved in building a package. This is a quick way to identify which recipes contribute to a package's dependency graph without triggering an actual build.
+
+```bash
+ix dep bin/curl
+```
+
+Each line in the output is a path to an `ix.sh` file under the `pkgs/` directory tree.
+
+## Build Output Capture
+
+Build output in IX flows through the `assemble` subprocess and can be substantial — especially for large packages like compilers or language runtimes. Redirect standard output and standard error to a log file so nothing is lost:
+
+```bash
+./ix build bin/llvm >/tmp/build.log 2>&1
+```
+
+<Warning>
+Builds from scratch for toolchains such as Rust (cargo) or Go can be very slow — the entire toolchain is compiled from source. **Never interrupt a running build.** Killing the process mid-build can leave the store in an inconsistent state and waste all the work already completed.
+</Warning>
+
+<Note>
+`ix build` is equivalent to `ix let` over a temporary ephemeral realm. It builds and resolves the dependency graph fully but does not create or modify any named realm anchor. No existing realm is affected.
+</Note>
